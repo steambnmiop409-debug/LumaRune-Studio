@@ -51,6 +51,9 @@ const SOLID_OBJECTS: ReadonlySet<ObjectKind> = new Set<ObjectKind>([
   'shrine',
   'tidepool',
   'gazebo',
+  'parasol',
+  'sandcastle',
+  'buoy',
 ]);
 
 export function isSolidObject(kind: ObjectKind): boolean {
@@ -642,8 +645,8 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
   addObject('bench', plaza.x + plaza.w - 6, plaza.y + plaza.h - 2);
   addObject('sign', gateEast.x + 2, gateEast.y - 2);
   addObject('sign', plaza.x - 3, plaza.y + 4);
-  addObject('board', plaza.x + 4, plaza.y + 1);
-  interactables.push({ kind: 'board', x: plaza.x + 4, y: plaza.y + 1 });
+  addObject('board', plaza.x + 2, plaza.y + 3);
+  interactables.push({ kind: 'board', x: plaza.x + 2, y: plaza.y + 3 });
   addObject('bench', meadowC.x + 2, meadowC.y - 1, 2, 1);
 
   // ── 10b. Landmarks: places worth walking to ────────────────────────────
@@ -744,6 +747,37 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
         addObject('tidepool', x, y, 2, 1);
         placedPools.push([x, y]);
         pools++;
+      }
+
+    // Sunset Beach: parasols and a sandcastle a few steps from the surf.
+    const beachSpots: Array<[number, number]> = [];
+    for (let y = beachC.y - 30; y < beachC.y + 30; y++)
+      for (let x = beachC.x - 30; x < beachC.x + 30; x++) {
+        if (!okArea(x, y, 2, 2) || T(x, y) !== Terrain.Sand || T(x + 1, y + 1) !== Terrain.Sand || zone[idx(x, y)] !== Zone.Beach) continue;
+        let seaNear = false;
+        let seaTooNear = false;
+        for (let oy = -4; oy <= 5; oy++)
+          for (let ox = -4; ox <= 5; ox++) {
+            const t = T(x + ox, y + oy);
+            if (t !== Terrain.Sea && t !== Terrain.Deep) continue;
+            seaNear = true;
+            if (Math.abs(ox) <= 2 && oy >= -1 && oy <= 3) seaTooNear = true;
+          }
+        if (seaNear && !seaTooNear && hash2(x, y, seed + 130) < 0.08 && !beachSpots.some(([bx, by]) => Math.hypot(bx - x, by - y) < 8)) beachSpots.push([x, y]);
+      }
+    beachSpots.slice(0, 4).forEach(([x, y], i) => addObject(i === 2 ? 'sandcastle' : 'parasol', x, y, 2, i === 2 ? 1 : 2));
+
+    // Buoys bobbing off the pier.
+    let buoys = 0;
+    for (const [bx, by] of [
+      [dockX - 6, shoreY + 6],
+      [dockX - 4, shoreY + 13],
+      [dockX + 16, shoreY + 8],
+      [dockX + 7, shoreY + 15],
+    ])
+      if ((T(bx, by) === Terrain.Sea || T(bx, by) === Terrain.Deep) && !solid[idx(bx, by)] && buoys < 4) {
+        addObject('buoy', bx, by);
+        buoys++;
       }
 
     // The waterfall basin gets its own name.

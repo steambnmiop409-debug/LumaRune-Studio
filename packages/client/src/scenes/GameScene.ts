@@ -15,6 +15,7 @@ import {
   allNpcPoses,
   NPC_BY_ID,
   npcAt,
+  debrisBlocks,
   type Dir,
   type GameEvent,
   type InteractKind,
@@ -135,6 +136,7 @@ export class GameScene implements Scene {
       if (tx < 0 || ty < 0 || tx >= map.w || ty >= map.h) return true;
       if (map.solid[ty * map.w + tx]) return true;
       if (this.world.placed.some((p) => p.x === tx && p.y === ty)) return true;
+      if (debrisBlocks(this.world.state.debris[ty * map.w + tx])) return true;
       const crop = this.world.soil[ty * map.w + tx]?.crop;
       if (crop && !crop.dead && getCrop(crop.id).trellis && cropStage(crop) >= 1) return true;
     }
@@ -314,8 +316,10 @@ export class GameScene implements Scene {
     if (useDown && !this.swing) this.useSelected();
     else if (this.useHeld > 0.35 && !this.swing) this.useSelected();
     if (interactDown) {
+      // A villager right where we're looking wins over a nearby counter; otherwise use the nearest interactable.
       const cand = this.interactCandidate();
-      const t = cand ?? this.target;
+      const npcHere = npcAt(world.map, world.clock.minute, this.target.x, this.target.y);
+      const t = npcHere && !(cand && cand.x === this.target.x && cand.y === this.target.y) ? this.target : (cand ?? this.target);
       this.send({ t: 'interact', tx: t.x, ty: t.y });
     }
   }
@@ -387,8 +391,15 @@ export class GameScene implements Scene {
         const y = e.y * TILE + 10;
         const pan = (x - (this.view.camX + this.game.screen.width / 2)) / 300;
         if (e.kind === 'till' || e.kind === 'clear') {
-          ps.burst(x, y, 10, ['#8a5a3a', '#a87a52', '#6e4630'], 40, 40, 160, 0.5);
+          ps.burst(x, y, 10, e.kind === 'clear' ? ['#6a9a4a', '#8ab85a', '#8a5a3a'] : ['#8a5a3a', '#a87a52', '#6e4630'], 40, 40, 160, 0.5);
           audio.play('hoe', { pan });
+        } else if (e.kind === 'break') {
+          ps.burst(x, y - 2, 12, ['#b0a898', '#8f8a86', '#d0c8bc'], 55, 50, 220, 0.55);
+          audio.play('hoe', { pan, rate: 0.7 });
+          audio.play('crate', { pan, volume: 0.5, rate: 1.4, delay: 0.03 });
+        } else if (e.kind === 'chop') {
+          ps.burst(x, y - 2, 9, ['#8a5a3a', '#d8b07a', '#6a9a4a'], 45, 45, 200, 0.5);
+          audio.play('crate', { pan, volume: 0.6, rate: 1.2 });
         } else if (e.kind === 'water') {
           for (let i = 0; i < 10; i++) ps.spawn({ x: x - 5 + Math.random() * 10, y: y - 10, vx: (Math.random() - 0.5) * 20, vy: 20 + Math.random() * 30, g: 200, max: 0.4, color: i % 2 ? '#8ad0f0' : '#d8f0ff' });
           audio.play('water', { pan });
@@ -530,6 +541,7 @@ export class GameScene implements Scene {
       cargo: world.cargo,
       players,
       forage: world.state.forage,
+      debris: world.state.debris,
       boardFresh: !!world.state.request && !world.state.request.done,
     };
   }

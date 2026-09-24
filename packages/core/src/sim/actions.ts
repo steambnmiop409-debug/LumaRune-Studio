@@ -12,6 +12,7 @@ import { TILE, isFreshWater } from '../world/tiles';
 import type { InteractKind, WorldMap } from '../world/types';
 import { canTill, newSoil, placedAt } from './world';
 import { gift, npcAt, pickForage, talk } from './social';
+import { DEBRIS_NAME, weedFind } from './debris';
 
 /** Max distance (px) from the player's feet to a tile centre for tool use / interaction. */
 export const REACH_PX = 30;
@@ -28,6 +29,8 @@ export interface SimContext {
   touchSoil(key: number): void;
   touchPlaced(): void;
   touchPlayer(id: string): void;
+  /** Farm debris changed (optional: tests may ignore it). */
+  touchDebris?(): void;
 }
 
 type Result = string | null;
@@ -81,6 +84,27 @@ export function useItem(ctx: SimContext, p: PlayerState, slot: number, x: number
     const npc = npcAt(map, state.clock.minute, x, y);
     if (npc) return gift(ctx, p, npc, slot);
   }
+
+  // Clearing farm debris: the hoe breaks up anything, the scythe cuts weeds.
+  const debris = state.debris[key];
+  if (debris && def.kind === 'tool' && (def.tool === 'hoe' || (def.tool === 'scythe' && debris === 'weed'))) {
+    const cost = debris === 'stone' ? 3 : debris === 'twig' ? 2 : 1;
+    if (!spendStamina(p, cost)) return '너무 지쳤어요. 오늘은 쉬어야 해요.';
+    delete state.debris[key];
+    ctx.touchDebris?.();
+    ctx.touchPlayer(p.id);
+    ctx.emit({ t: 'fx', kind: debris === 'stone' ? 'break' : debris === 'twig' ? 'chop' : 'clear', x, y, by: p.id }, 'all');
+    if (debris === 'weed') {
+      const found = weedFind(state, ctx.rng);
+      if (found && canFit(p.inv, found, 1)) {
+        addItem(p.inv, found, 1);
+        ctx.emit({ t: 'toast', text: `잡초 속에서 ${getItem(found).name}을(를) 찾았어요!`, tone: 'good' }, p.id);
+      }
+    }
+    return null;
+  }
+  if (debris && def.kind === 'tool' && def.tool === 'scythe') return `${DEBRIS_NAME[debris]}는 괭이로 치워야 해요.`;
+  if (debris && (def.kind === 'seed' || def.kind === 'placeable')) return `먼저 ${DEBRIS_NAME[debris]}를 치워 주세요.`;
 
   switch (def.kind) {
     case 'tool': {
@@ -226,10 +250,11 @@ export function shopStock(state: WorldState, shop: ShopId): string[] {
 export function interact(ctx: SimContext, p: PlayerState, x: number, y: number): Result {
   const { state, map } = ctx;
   if (!inReach(p, x, y, REACH_PX + 6)) return null;
-  const npc = npcAt(map, state.clock.minute, x, y);
+  const kind = interactableAt(map, x, y);
+  // A villager standing on or right next to the tile — unless the tile itself is a counter, board or bed.
+  const npc = kind ? null : npcAt(map, state.clock.minute, x, y);
   if (npc) return talk(ctx, p, npc);
   if (state.forage[y * map.w + x]) return pickForage(ctx, p, x, y);
-  const kind = interactableAt(map, x, y);
   if (kind) {
     switch (kind) {
       case 'seedShop':

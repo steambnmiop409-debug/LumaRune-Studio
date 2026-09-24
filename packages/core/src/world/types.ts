@@ -49,7 +49,10 @@ export type ObjectKind =
   | 'ruin'
   | 'shrine'
   | 'tidepool'
-  | 'gazebo';
+  | 'gazebo'
+  | 'parasol'
+  | 'sandcastle'
+  | 'buoy';
 
 /** Decorative / blocking object anchored at a tile. */
 export interface WorldObject {

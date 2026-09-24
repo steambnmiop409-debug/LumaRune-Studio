@@ -1,6 +1,6 @@
 import type { ShopId } from '../data/shops';
 import type { Appearance } from '../player/appearance';
-import type { DeathReason, Dir, Friendship, PlacedObject, PlayerState, ShipmentRecord, SoilState, VillageRequest, WorldState } from '../state/types';
+import type { DeathReason, DebrisKind, Dir, Friendship, PlacedObject, PlayerState, ShipmentRecord, SoilState, VillageRequest, WorldState } from '../state/types';
 import type { Clock } from '../time/calendar';
 import type { DayWeather } from '../weather/weather';
 
@@ -59,7 +59,7 @@ export type GameEvent =
   | { t: 'openShop'; shop: ShopId; stock: string[] }
   | { t: 'openPacking' }
   | { t: 'sleepPrompt' }
-  | { t: 'fx'; kind: 'till' | 'water' | 'plant' | 'fert' | 'refill' | 'clear' | 'place' | 'pickup' | 'tonic'; x: number; y: number; by: string }
+  | { t: 'fx'; kind: 'till' | 'water' | 'plant' | 'fert' | 'refill' | 'clear' | 'break' | 'chop' | 'place' | 'pickup' | 'tonic'; x: number; y: number; by: string }
   | { t: 'harvest'; x: number; y: number; cropId: string; q: number; qty: number; by: string }
   | { t: 'shipLoaded'; crates: number; by: string }
   | { t: 'shipDeparted'; record: ShipmentRecord }
@@ -80,6 +80,7 @@ export type ServerMessage =
   | { t: 'placed'; placed: PlacedObject[] }
   | { t: 'self'; player: PlayerState; gold: number; lifetime: number; discovered: string[] }
   | { t: 'social'; npcs: Record<string, Friendship>; forage: Record<number, string>; request: VillageRequest | null }
+  | { t: 'debris'; debris: Record<number, DebrisKind> }
   | { t: 'event'; e: GameEvent }
   /** Server rejected a move; snap the local player back here. */
   | { t: 'correct'; x: number; y: number }

@@ -109,7 +109,7 @@ export class BoardPanel implements Panel {
     ui.ctx.fillRect(0, 0, vw, vh);
     const c = ui.ctx;
     const W = 360;
-    const H = 232;
+    const H = 262;
     const x = Math.round((vw - W) / 2);
     const y = Math.round((vh - H) / 2);
     ui.panel({ x, y, w: W, h: H });
@@ -127,7 +127,8 @@ export class BoardPanel implements Panel {
       const have = countItem(this.world.self.inv, req.item);
       drawText(c, `가진 수량 ${Math.min(have, req.qty)}/${req.qty}`, x + 58, y + 63, { font: 'small', color: have >= req.qty ? P.tealDark : P.coralDark });
       c.drawImage(Sprites.coin(), x + 58, y + 78);
-      drawText(c, `보상 ${formatGold(req.reward)} · 우정 +`, x + 70, y + 77, { font: 'small' });
+      const rw = drawText(c, `보상 ${formatGold(req.reward)} · 우정`, x + 70, y + 77, { font: 'small' });
+      heart(c, x + 74 + rw, y + 79, 1);
       if (req.done) drawText(c, '완료!', x + W - 24, y + 74, { font: 'bold', color: P.tealDark, align: 'right' });
       else if (ui.button({ x: x + W - 96, y: y + 70, w: 80, h: 22 }, '전달하기', { tone: 'brass', disabled: have < req.qty })) {
         this.send({ t: 'deliver' });
@@ -141,14 +142,16 @@ export class BoardPanel implements Panel {
       const f = this.world.state.npcs[n.id];
       const img = Sprites.character(n.look).idle.down;
       c.drawImage(img, 0, 1, img.width, 16, x + 14, ry - 1, img.width, 16);
-      drawText(c, n.name, x + 36, ry + 2, { font: 'small' });
-      drawText(c, n.role, x + 72, ry + 2, { font: 'tiny', color: P.inkSoft, maxWidth: 120 });
-      heartsRow(c, x + W - 92, ry + 4, f?.points ?? 0);
+      const nw = drawText(c, n.name, x + 36, ry + 2, { font: 'small' });
       const talked = f?.talked === this.world.clock.day;
-      if (talked) drawText(c, '대화함', x + W - 98, ry + 2, { font: 'tiny', color: P.tealDark, align: 'right' });
+      const gifted = f?.gifted === this.world.clock.day;
+      const roleEnd = x + W - 100 - (talked || gifted ? 34 : 0);
+      drawText(c, n.role, x + 42 + nw, ry + 3, { font: 'tiny', color: P.inkSoft, maxWidth: roleEnd - (x + 42 + nw) });
+      heartsRow(c, x + W - 92, ry + 4, f?.points ?? 0);
+      if (talked || gifted) drawText(c, gifted ? '선물함' : '대화함', x + W - 98, ry + 3, { font: 'tiny', color: P.tealDark, align: 'right' });
     });
     const hint = wrap('주민에게 말을 걸면(E) 친해지고, 작물·채집물을 들고 사용하면 선물할 수 있어요. 선물은 하루 한 번!', W - 24, 'tiny');
-    hint.forEach((l, i) => drawText(c, l, x + 12, y + H - 22 + i * 9, { font: 'tiny', color: P.inkSoft }));
+    hint.forEach((l, i) => drawText(c, l, x + 12, y + H - 8 - hint.length * 9 + i * 9, { font: 'tiny', color: P.inkSoft }));
     const r = { x: x + W - 18, y: y + 5, w: 13, h: 13 };
     c.fillStyle = P.ink;
     c.fillRect(r.x, r.y, 13, 13);

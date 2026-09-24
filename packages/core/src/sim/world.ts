@@ -4,6 +4,7 @@ import { recoverMarket, settleCargo } from '../economy/market';
 import { evaporate, growCropOneDay } from '../farming/growth';
 import { addItem, emptyInventory } from '../inventory/inventory';
 import { Rng } from '../math/rng';
+import { regrowWeeds, scatterDebris } from './debris';
 import { newRequest, spawnForage } from './social';
 import type { Appearance } from '../player/appearance';
 import type { DaySummary } from '../protocol/messages';
@@ -13,7 +14,7 @@ import { generateDayWeather, isPrecipitating, isWet } from '../weather/weather';
 import { TILE } from '../world/tiles';
 import type { WorldMap } from '../world/types';
 
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 export const START_GOLD = 500;
 export const MAX_STAMINA = 100;
 
@@ -44,8 +45,12 @@ export function createWorldState(seed: number, rng: Rng, map?: WorldMap): WorldS
     npcs: {},
     forage: {},
     request: null,
+    debris: {},
   };
-  if (map) spawnForage(state, map, rng);
+  if (map) {
+    scatterDebris(state, map, rng);
+    spawnForage(state, map, rng);
+  }
   newRequest(state, rng);
   state.rngState = rng.state;
   return state;
@@ -95,7 +100,7 @@ export function isCovered(state: WorldState, x: number, y: number): boolean {
 }
 
 export function canTill(state: WorldState, map: WorldMap, x: number, y: number): boolean {
-  return isFarmable(map, x, y) && !placedAt(state, x, y);
+  return isFarmable(map, x, y) && !placedAt(state, x, y) && !state.debris[y * map.w + x];
 }
 
 /** Called on every in-game hour while it rains. Returns changed soil keys. */
@@ -189,6 +194,7 @@ export function advanceDay(state: WorldState, map: WorldMap, rng: Rng, passedOut
   changed.push(...runSprinklers(state, map));
   spawnForage(state, map, rng);
   newRequest(state, rng);
+  regrowWeeds(state, map, rng);
 
   for (const p of Object.values(state.players)) {
     p.stamina = passedOut ? Math.round(p.maxStamina * 0.7) : p.maxStamina;

@@ -362,3 +362,101 @@ export function gazebo(v: number): HTMLCanvasElement {
   p.outline(shade(roof, 3));
   return p.toCanvas();
 }
+
+/** Striped beach parasol over a towel; colours and tilt from the seed. */
+export function parasol(v: number): HTMLCanvasElement {
+  const p = new Pix(36, 40);
+  const stripes = [
+    ['#e05a5a', '#fff4e8'],
+    ['#3a9ac8', '#fff4e8'],
+    ['#f0b040', '#fff4e8'],
+    ['#6ab870', '#fff8f0'],
+  ][v % 4];
+  const towel = ['#f08aa8', '#7ab0e8', '#f0d060', '#b890e0'][Math.floor(r(v, 1) * 4)];
+  // Towel on the sand.
+  for (let y = 30; y < 38; y++)
+    for (let x = 5; x < 27; x++) {
+      const band = Math.floor((x - 5) / 4) % 2 === 0;
+      p.set(x, y, y === 37 ? shade(towel, 1) : band ? towel : light(towel, 1));
+    }
+  p.rect(5, 30, 22, 1, light(towel, 2));
+  // Pole, slightly tilted.
+  const tilt = r(v, 2) < 0.5 ? -1 : 1;
+  p.line(18, 9, 18 + tilt * 2, 37, '#8a6a4a');
+  p.line(19, 9, 19 + tilt * 2, 37, '#b08a5a');
+  // Canopy: a shallow dome in alternating gores.
+  for (let y = 2; y < 13; y++)
+    for (let x = 2; x < 35; x++) {
+      const nx = (x + 0.5 - 18.5) / 16.5;
+      const ny = (y + 0.5 - 12) / 10;
+      if (nx * nx + ny * ny > 1 || y > 11) continue;
+      const gore = Math.floor(((Math.atan2(ny, nx) + Math.PI) / Math.PI) * 6) % 2;
+      let c = stripes[gore];
+      if (y >= 10) c = shade(c, 1);
+      else if (nx < -0.3 && y < 7) c = light(c, 1);
+      p.set(x, y, c);
+    }
+  // Scalloped hem.
+  for (let x = 3; x < 34; x++) if (x % 4 !== 0) p.set(x, 12, shade(stripes[Math.floor((x - 3) / 4) % 2], 1));
+  p.set(18, 1, '#8a6a4a');
+  // A pair of flip-flops and a paperback.
+  p.rect(8, 33, 2, 3, '#e8c040');
+  p.rect(11, 33, 2, 3, '#e8c040');
+  p.rect(21, 32, 4, 3, r(v, 3) < 0.5 ? '#5a7ab0' : '#c85a4a');
+  p.rect(21, 32, 4, 1, '#fff8e8');
+  p.outline(shade(stripes[0], 3));
+  return p.toCanvas();
+}
+
+/** A child's sandcastle: towers, a flag, a moat and a bucket. */
+export function sandcastle(v: number): HTMLCanvasElement {
+  const p = new Pix(28, 22);
+  const sand = '#e8d098';
+  const lit = light(sand, 1);
+  const dim = shade(sand, 1);
+  // Moat.
+  p.ellipse(14, 17, 12, 4, (nx, ny) => (Math.hypot(nx, ny) > 0.75 ? '#c8aa70' : '#6ab8c8'));
+  // Keep and towers.
+  p.rect(9, 9, 10, 8, sand);
+  p.rect(9, 9, 2, 8, lit);
+  p.rect(17, 9, 2, 8, dim);
+  for (const [x, h] of [
+    [6, 9],
+    [19, 8 + Math.floor(r(v, 1) * 3)],
+  ]) {
+    p.rect(x, 17 - h, 4, h, sand);
+    p.rect(x, 17 - h, 1, h, lit);
+    p.rect(x + 3, 17 - h, 1, h, dim);
+    p.set(x, 16 - h, sand);
+    p.set(x + 2, 16 - h, sand);
+  }
+  for (let x = 9; x < 19; x += 2) p.set(x, 8, sand);
+  p.rect(13, 13, 2, 4, '#8a7048');
+  // Flag and a shell.
+  p.line(14, 2, 14, 8, '#6a5a4a');
+  p.rect(15, 2, 3, 2, ['#e05a5a', '#3a9ac8', '#f0b040'][v % 3]);
+  p.set(11, 12, '#f8c8d0');
+  // Bucket.
+  p.rect(23, 12, 4, 4, '#e05a5a');
+  p.rect(23, 12, 4, 1, '#ff8a80');
+  p.outline('#8a7048');
+  return p.toCanvas();
+}
+
+/** Harbour buoy; `frame` tips it with the swell. */
+export function buoy(v: number, frame: number): HTMLCanvasElement {
+  const p = new Pix(12, 18);
+  const c = ['#e05a4a', '#f0b040', '#3aa870'][v % 3];
+  const tip = frame === 1 ? 1 : 0;
+  p.ellipse(6, 13, 4.5, 2.2, (nx, ny) => (ny < 0 ? light(c, 1) : shade(c, 1)));
+  p.rect(4 + tip, 6, 4, 7, c);
+  p.rect(4 + tip, 6, 1, 7, light(c, 1));
+  p.rect(7 + tip, 6, 1, 7, shade(c, 1));
+  p.rect(4 + tip, 9, 4, 1, '#fff4e8');
+  p.rect(5 + tip, 2, 2, 4, '#5a5a6a');
+  p.set(5 + tip, 1, frame === 1 ? '#fff0a0' : '#c8b060');
+  // Ripple ring.
+  for (let x = 1; x < 11; x++) if ((x + frame) % 3) p.set(x, 16, '#d8f0f0');
+  p.outline(shade(c, 3));
+  return p.toCanvas();
+}

@@ -13,6 +13,8 @@ type Migration = (state: Record<string, unknown>) => Record<string, unknown>;
 const MIGRATIONS: Record<number, Migration> = {
   // v2: villagers, forage and the notice board.
   1: (s) => ({ ...s, npcs: {}, forage: {}, request: null }),
+  // v3: farm debris (existing farms start tidy).
+  2: (s) => ({ ...s, debris: {} }),
 };
 
 export function makeSave(state: WorldState): SaveFile {

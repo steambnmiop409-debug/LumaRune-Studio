@@ -128,7 +128,11 @@ export interface WorldState {
   forage: Record<number, string>;
   /** Today's request on the plaza notice board. */
   request: VillageRequest | null;
+  /** Weeds, stones and twigs on the farm, keyed by tile index. */
+  debris: Record<number, DebrisKind>;
 }
+
+export type DebrisKind = 'weed' | 'stone' | 'twig';
 
 export interface Friendship {
   points: number;

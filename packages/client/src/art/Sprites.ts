@@ -5,6 +5,7 @@ import { cropSprite, deadCropSprite, produceIcon, seedIcon } from './sprites/cro
 import { ITEM_ICONS } from './sprites/items';
 import { forageGround, forageIcon, noticeBoard } from './sprites/forage';
 import * as landmarks from './sprites/landmarks';
+import { fieldStone, twig, weed } from './sprites/debris';
 import { blossomTree, bush, flowers, oakTree, palmTree, pineTree, reeds, rock, stump, type SeasonLook, type TreeSprite } from './sprites/nature';
 import * as props from './sprites/props';
 import * as details from './sprites/details';
@@ -64,6 +65,12 @@ class SpriteCache {
           return landmarks.shrine(v, frame === 1);
         case 'tidepool':
           return landmarks.tidepool(v, frame);
+        case 'parasol':
+          return landmarks.parasol(v);
+        case 'sandcastle':
+          return landmarks.sandcastle(v);
+        case 'buoy':
+          return landmarks.buoy(v, frame);
         default:
           return landmarks.gazebo(v);
       }
@@ -206,6 +213,9 @@ class SpriteCache {
     });
   }
 
+  debris(kind: 'weed' | 'stone' | 'twig', v: number, frame = 0) {
+    return this.get(`debris:${kind}:${v}:${frame}`, () => (kind === 'weed' ? weed(v, frame) : kind === 'stone' ? fieldStone(v) : twig(v)));
+  }
   board(fresh: boolean) {
     return this.get(`board:${fresh}`, () => noticeBoard(fresh));
   }

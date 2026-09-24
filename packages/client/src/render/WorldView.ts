@@ -52,6 +52,8 @@ export interface ViewInput {
   forage: Record<number, string>;
   /** Today's notice-board request is still open. */
   boardFresh: boolean;
+  /** Farm debris by tile key. */
+  debris: Record<number, 'weed' | 'stone' | 'twig'>;
 }
 
 interface Drawable {
@@ -60,7 +62,7 @@ interface Drawable {
 }
 
 const TREE_KINDS = new Set(['oak', 'pine', 'blossom', 'palm', 'fruittree']);
-const LANDMARKS = new Set(['tent', 'campfire', 'logseat', 'woodpile', 'ruin', 'shrine', 'tidepool', 'gazebo']);
+const LANDMARKS = new Set(['tent', 'campfire', 'logseat', 'woodpile', 'ruin', 'shrine', 'tidepool', 'gazebo', 'parasol', 'sandcastle', 'buoy']);
 
 export class WorldView {
   readonly terrain: TerrainRenderer;
@@ -251,12 +253,24 @@ export class WorldView {
         const sx = bx + 8 - tree.ax - cx + jx;
         const sy = by + 14 - tree.ay - cy + jy;
         const sway = Math.round(Math.sin(this.time * 1.4 + o.x * 0.7 + o.y * 0.3) * wind * 1.3);
+        // See-through canopy when the player walks behind it.
+        const me = input.players[0];
+        const baseY = by + 14 + jy;
+        const behind =
+          me &&
+          me.y < baseY &&
+          me.y > baseY - tree.img.height + 6 &&
+          me.x + 5 > sx + cx + 2 &&
+          me.x - 5 < sx + cx + tree.img.width - 2 &&
+          me.y - 26 < sy + cy + tree.swayRows;
         drawables.push({
-          y: by + 14 + jy,
+          y: baseY,
           draw: () => {
             const img = tree.img;
             ctx.drawImage(img, 0, tree.swayRows, img.width, img.height - tree.swayRows, sx, sy + tree.swayRows, img.width, img.height - tree.swayRows);
+            if (behind) ctx.globalAlpha = 0.42;
             ctx.drawImage(img, 0, 0, img.width, tree.swayRows, sx + sway, sy, img.width, tree.swayRows);
+            ctx.globalAlpha = 1;
           },
         });
         continue;
@@ -268,11 +282,14 @@ export class WorldView {
         if (o.kind === 'campfire') frame = Math.floor(this.time * 8 + o.x) % 3;
         else if (o.kind === 'shrine') frame = lit ? 1 : 0;
         else if (o.kind === 'tidepool') frame = Math.floor(this.time * 1.5 + o.x) % 2;
+        else if (o.kind === 'buoy') frame = Math.sin(this.time * 1.6 + o.x) > 0.3 ? 1 : 0;
         const img = Sprites.landmark(o.kind, o.v, frame);
         const flat = o.kind === 'tidepool';
-        if (!flat && o.kind !== 'campfire') shadow(bx + w / 2, by + h - 2, w / 2 - 1, 2.5);
+        if (!flat && o.kind !== 'campfire' && o.kind !== 'buoy' && o.kind !== 'parasol') shadow(bx + w / 2, by + h - 2, w / 2 - 1, 2.5);
+        if (o.kind === 'buoy' && lit) lights.push({ x: bx + 6 - cx, y: by - 1 - cy, r: 14, color: '#fff0a0', a: Math.sin(this.time * 3 + o.x) > 0 ? 0.9 : 0.2 });
+        const bob = o.kind === 'buoy' ? Math.round(Math.sin(this.time * 1.6 + o.x) * 1.2) : 0;
         const ix = bx + Math.floor((w - img.width) / 2) - cx;
-        const iy = by + h - img.height + (o.kind === 'tidepool' ? 2 : 0) - cy;
+        const iy = by + h - img.height + (o.kind === 'tidepool' ? 2 : o.kind === 'buoy' ? 3 : 0) + bob - cy;
         drawables.push({ y: flat ? by : by + h - 2, draw: () => ctx.drawImage(img, ix, iy) });
         if (o.kind === 'campfire') {
           lights.push({ x: bx + 8 - cx, y: by + 6 - cy, r: 70 + Math.sin(this.time * 9) * 4, color: '#ffb060', a: 0.95 });
@@ -378,10 +395,15 @@ export class WorldView {
       if (sx - cx > vw || sy - cy > vh || sx + spr.img.width - cx < 0 || sy + spr.img.height - cy < -40) continue;
       ctx.fillStyle = 'rgba(24,30,64,0.18)';
       ctx.fillRect(sx + 2 - cx, (b.y + b.h) * TILE - cy, spr.img.width - 4, 3);
+      // Walking behind a building fades it so the player never disappears.
+      const me = input.players[0];
+      const hidden = me && me.y < (b.y + b.h) * TILE - 2 && me.y > sy + 8 && me.x + 5 > sx && me.x - 5 < sx + spr.img.width;
       drawables.push({
         y: (b.y + b.h) * TILE - 1,
         draw: () => {
+          if (hidden) ctx.globalAlpha = 0.5;
           ctx.drawImage(spr.img, sx - cx, sy - cy);
+          ctx.globalAlpha = 1;
           if (b.kind === 'windmill') {
             const sails = Sprites.sails(Math.floor(this.time * 3 * (0.4 + input.weather.wind)) % 12);
             ctx.drawImage(sails, sx + spr.img.width / 2 - 38 - cx, sy + 20 - 38 - cy);
@@ -495,6 +517,19 @@ export class WorldView {
           lights.push({ x: sx + 20, y: sy + 89, r: 34, color: '#ffd98a', a: alpha });
         }
       }
+    }
+
+    // Farm debris.
+    for (const key of Object.keys(input.debris)) {
+      const k = Number(key);
+      const dx = (k % map.w) * TILE;
+      const dy = Math.floor(k / map.w) * TILE;
+      if (dx < cx - TILE || dy < cy - TILE || dx > cx + vw + TILE || dy > cy + vh + TILE) continue;
+      const kind = input.debris[k];
+      const frame = kind === 'weed' && Math.sin(this.time * 1.8 + k) * wind > 0.15 ? 1 : 0;
+      const img = Sprites.debris(kind, k, frame);
+      if (kind !== 'weed') shadow(dx + 8, dy + 13, 6, 1.8);
+      drawables.push({ y: dy + (kind === 'weed' ? 9 : 12), draw: () => ctx.drawImage(img, dx - cx, dy + TILE - img.height - cy) });
     }
 
     // Forage: gentle glint so it reads as something to pick up.

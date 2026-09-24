@@ -126,6 +126,9 @@ export class ClientWorld {
         this.discovered = new Set(msg.discovered);
         break;
       }
+      case 'debris':
+        this.state.debris = msg.debris;
+        break;
       case 'social':
         this.state.npcs = msg.npcs;
         this.state.forage = msg.forage;

@@ -57,6 +57,9 @@ const MOSS = [C('#7aa150'), C('#5f8a44')];
 const STEP = ['#e4d9c6', '#cfc2ad', '#b3a58f', '#8a7b68', '#6a5c4e'].map(C);
 const FALL = ['#e6f7f6', '#bfe8ec', '#96d4e2', '#74bcd6'].map(C);
 const FALL_FRAMES = 4;
+const FAN = ['#eadfcc', '#dfd2bc', '#d3c5ad', '#c4b59c'].map(C);
+const FAN_MORTAR = C('#a39485');
+const FAN_EDGE = C('#8a7c70');
 
 function band(colors: number[], v: number, x: number, y: number): number {
   const f = Math.max(0, Math.min(colors.length - 1.001, v * (colors.length - 1)));
@@ -143,11 +146,37 @@ export class TerrainRenderer {
   private roadPieces: Piece[];
 
   private fallSet: Set<number>;
+  /** Centre of the plaza fountain, in world pixels (the paving fans out around it). */
+  private fountain: { x: number; y: number } | null;
 
   constructor(private map: WorldMap) {
     this.riverPieces = pieces(map.rivers);
     this.roadPieces = pieces(map.roads);
     this.fallSet = new Set(map.falls);
+    const f = map.objects.find((o) => o.kind === 'fountain');
+    this.fountain = f ? { x: (f.x + 1) * TILE, y: (f.y + 1) * TILE } : null;
+  }
+
+  /** Fan-pattern setts around the fountain: concentric rings split into arcs, framed by a kerb ring. */
+  private fanPixel(wx: number, wy: number): number | null {
+    const f = this.fountain;
+    if (!f) return null;
+    const dx = wx + 0.5 - f.x;
+    const dy = (wy + 0.5 - f.y) * 1.08;
+    const d = Math.hypot(dx, dy);
+    const R = 64;
+    if (d > R + 3) return null;
+    if (d > R) return d > R + 2 ? MORTAR : COBBLE[0];
+    if (d > R - 2) return FAN_EDGE;
+    const ring = Math.floor(d / 7);
+    const rr = d - ring * 7;
+    if (rr < 1 && ring > 0) return FAN_MORTAR;
+    const circ = Math.max(1, Math.round((2 * Math.PI * (ring + 0.5) * 7) / 9));
+    const a = (Math.atan2(dy, dx) / (2 * Math.PI) + 1 + (ring % 2) * (0.5 / circ)) % 1;
+    const seg = a * circ;
+    if (seg - Math.floor(seg) < 0.9 / Math.max(1, (ring + 0.5) * 0.9) && ring > 0) return FAN_MORTAR;
+    const tone = Math.floor(hash2(ring, Math.floor(seg), this.map.seed + 90) * 3);
+    return rr > 5 ? FAN[Math.min(3, tone + 1)] : FAN[tone];
   }
 
   private levelAt(tx: number, ty: number): number {
@@ -457,6 +486,11 @@ export class TerrainRenderer {
               break;
             }
             case Terrain.Cobble: {
+              const fan = this.fanPixel(wx, wy);
+              if (fan !== null) {
+                col = fan;
+                break;
+              }
               const c = cobble(wx, wy, seed);
               col = c < 0 ? MORTAR : COBBLE[c];
               // Curb stones along the plaza edge.

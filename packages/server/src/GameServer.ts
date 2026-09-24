@@ -76,6 +76,7 @@ export class GameServer {
   private dirtySoil = new Set<number>();
   private dirtyPlaced = false;
   private dirtySocial = false;
+  private dirtyDebris = false;
   private dirtyPlayers = new Set<string>();
   private saving: Promise<void> = Promise.resolve();
 
@@ -189,6 +190,7 @@ export class GameServer {
       touchSoil: (k) => this.dirtySoil.add(k),
       touchPlaced: () => (this.dirtyPlaced = true),
       touchPlayer: (id) => this.dirtyPlayers.add(id),
+      touchDebris: () => (this.dirtyDebris = true),
     };
   }
 
@@ -338,6 +340,7 @@ export class GameServer {
     for (const k of changed) this.dirtySoil.add(k);
     this.dirtyPlaced = true;
     this.dirtySocial = true;
+    this.dirtyDebris = true;
     for (const p of Object.values(state.players)) this.dirtyPlayers.add(p.id);
     this.emit({ t: 'dayStart', summary }, 'all');
     // Everyone wakes up at home.
@@ -376,6 +379,10 @@ export class GameServer {
     if (this.dirtyPlaced) {
       this.dirtyPlaced = false;
       this.broadcast({ t: 'placed', placed: state.placed });
+    }
+    if (this.dirtyDebris) {
+      this.dirtyDebris = false;
+      this.broadcast({ t: 'debris', debris: state.debris });
     }
     if (this.dirtySocial) {
       this.dirtySocial = false;

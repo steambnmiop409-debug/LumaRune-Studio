@@ -23,3 +23,4 @@ export * from './sim/actions';
 export * from './data/npcs';
 export * from './sim/npc';
 export * from './sim/social';
+export * from './sim/debris';
