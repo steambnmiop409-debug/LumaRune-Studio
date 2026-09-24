@@ -1,3 +1,4 @@
+import { L } from '../i18n';
 /** Real milliseconds per in-game minute. */
 export const MS_PER_GAME_MINUTE = 700;
 export const DAY_START = 6 * 60;
@@ -49,6 +50,7 @@ export function formatTime(minute: number): string {
   return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 }
 
+/** "봄 3일 (수)" — a template, translated wherever it's shown. */
 export function formatDate(day: number): string {
-  return `${SEASON_NAME[seasonOf(day)]} ${dayOfSeason(day)}일 (${WEEKDAY_NAME[weekdayOf(day)]})`;
+  return L('{season} {day}일 ({weekday})', { season: SEASON_NAME[seasonOf(day)], day: String(dayOfSeason(day)), weekday: WEEKDAY_NAME[weekdayOf(day)] });
 }

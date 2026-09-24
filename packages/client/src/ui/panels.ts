@@ -29,6 +29,7 @@ import {
   SHIP_DEPARTURE,
   WATER_THRESHOLD,
   type Appearance,
+  tr,
 } from '@lumina/core';
 import { Sprites } from '../art/Sprites';
 import { WALK_FRAMES } from '../art/sprites/character';
@@ -37,7 +38,10 @@ import type { AudioManager } from '../audio/AudioManager';
 import { drawText, measure, wrap } from '../engine/text';
 import type { ClientWorld } from '../net/ClientWorld';
 import { icon2x, itemCard, seedCard } from './cards';
+import { fmtTemp, fmtTempRange, fmtTime } from './format';
 import { heartsRow } from './social';
+import { SettingsPanel } from './settings';
+import type { Game } from '../engine/Game';
 import { formatGold, type UI } from './kit';
 
 export interface Panel {
@@ -46,6 +50,8 @@ export interface Panel {
   pauses: boolean;
   update?(dt: number): void;
   draw(ui: UI, vw: number, vh: number): void;
+  /** Esc was pressed: return true if the panel dealt with it itself (e.g. going back a step). */
+  onCancel?(): boolean;
 }
 
 type Send = (m: ClientMessage) => void;
@@ -218,18 +224,18 @@ export class JournalPanel implements Panel {
     const w = this.world;
     const p = w.self;
     drawText(c, '나의 섬', lx + 10, py + 6, { font: 'bold' });
-    drawText(c, `섬 생활 ${w.clock.day + 1}일째`, lx + pw - 10, py + 8, { font: 'small', color: P.inkSoft, align: 'right' });
+    drawText(c, tr('섬 생활 {n}일째', { n: w.clock.day + 1 }), lx + pw - 10, py + 8, { font: 'small', color: P.inkSoft, align: 'right' });
     const dir = (['down', 'left', 'down', 'right'] as const)[Math.floor(this.time / 2.4) % 4];
     const walking = Math.floor(this.time / 1.2) % 2 === 1;
     stage(ui, lx + 10, py + 24, 56, 76, Sprites.character(p.look).frame(dir, walking ? Math.floor(this.time * 13) % WALK_FRAMES : -1, 'free', !walking && this.time % 3.2 > 3.05).img);
     const tx = lx + 76;
-    drawText(c, p.name, tx, py + 26, { font: 'bold' });
-    drawText(c, p.farmName, tx, py + 40, { font: 'small', color: P.inkSoft });
+    drawText(c, p.name, tx, py + 26, { font: 'bold', raw: true });
+    drawText(c, p.farmName, tx, py + 40, { font: 'small', color: P.inkSoft, raw: true, maxWidth: lx + pw - 10 - tx });
     c.drawImage(Sprites.coin(), tx, py + 58);
     drawText(c, formatGold(w.gold), tx + 12, py + 56, { font: 'bold' });
-    drawText(c, `누적 출하 ${formatGold(w.lifetime)}`, tx, py + 72, { font: 'small', color: P.inkSoft });
+    drawText(c, tr('누적 출하 {gold}', { gold: formatGold(w.lifetime) }), tx, py + 72, { font: 'small', color: P.inkSoft, maxWidth: lx + pw - 10 - tx });
     const crates = countItem(p.inv, 'crate');
-    drawText(c, `빈 상자 ${crates}개 · 손수레 ${p.cart ? '있음' : '없음'}`, tx, py + 86, { font: 'small', color: P.inkSoft });
+    drawText(c, tr(p.cart ? '빈 상자 {n}개 · 손수레 있음' : '빈 상자 {n}개 · 손수레 없음', { n: crates }), tx, py + 86, { font: 'small', color: P.inkSoft, maxWidth: lx + pw - 10 - tx });
 
     let y = py + 110;
     rule(ui, lx + 10, y, pw - 20);
@@ -240,12 +246,12 @@ export class JournalPanel implements Panel {
     progress(ui, lx + 10, y, bw, '작물 도감', `${w.discovered.size} / ${CROPS.length}`, w.discovered.size / CROPS.length, '#5a9a6a');
     y += 24;
     const deepest = w.state.mine.deepest;
-    progress(ui, lx + 10, y, bw, '광산 탐사', `${deepest} / ${MINE_DEPTH}층`, deepest / MINE_DEPTH, '#8a7a9a');
+    progress(ui, lx + 10, y, bw, '광산 탐사', tr('{n} / {max}층', { n: deepest, max: MINE_DEPTH }), deepest / MINE_DEPTH, '#8a7a9a');
     y += 24;
     const love = NPCS.reduce((n, d) => n + Math.min(MAX_HEARTS, Math.floor((w.state.npcs[d.id]?.points ?? 0) / POINTS_PER_HEART)), 0);
     progress(ui, lx + 10, y, bw, '주민과의 우정', `♥ ${love} / ${NPCS.length * MAX_HEARTS}`, love / (NPCS.length * MAX_HEARTS), '#e0485e');
     y += 24;
-    progress(ui, lx + 10, y, bw, '온실', w.state.greenhouse ? '복구 완료' : `복구 전 · ${formatGold(GREENHOUSE_COST.gold)}`, w.state.greenhouse ? 1 : 0, P.brass);
+    progress(ui, lx + 10, y, bw, '온실', w.state.greenhouse ? '복구 완료' : tr('복구 전 · {gold}', { gold: formatGold(GREENHOUSE_COST.gold) }), w.state.greenhouse ? 1 : 0, P.brass);
 
     // Right page: today.
     const x = rx + 12;
@@ -253,16 +259,16 @@ export class JournalPanel implements Panel {
     drawText(c, '오늘', x, py + 6, { font: 'bold' });
     drawText(c, formatDate(w.clock.day), x + cw, py + 8, { font: 'small', color: P.inkSoft, align: 'right' });
     y = py + 24;
-    drawText(c, `${WEATHER_NAME[w.weather.kind]} · 평균 ${Math.round(w.weather.meanTemp)}°C`, x, y, { font: 'small' });
-    drawText(c, `내일 ${WEATHER_NAME[w.forecast.kind]}`, x + cw, y, { font: 'small', color: P.inkSoft, align: 'right' });
+    const todayW = drawText(c, tr('{weather} · 평균 {temp}', { weather: WEATHER_NAME[w.weather.kind], temp: fmtTemp(w.weather.meanTemp) }), x, y, { font: 'small', maxWidth: cw / 2 });
+    drawText(c, tr('내일 {weather}', { weather: WEATHER_NAME[w.forecast.kind] }), x + cw, y, { font: 'small', color: P.inkSoft, align: 'right', maxWidth: cw - todayW - 8 });
     y += 13;
     const now = w.minute(true);
     const ship = w.shipPresent
       ? now < SHIP_DEPARTURE
-        ? `화물선 정박 중 · ${Math.floor(SHIP_DEPARTURE / 60)}:00 출항`
+        ? tr('화물선 정박 중 · {t} 출항', { t: fmtTime(SHIP_DEPARTURE) })
         : '화물선 출항 준비 중'
       : '화물선은 떠났어요 · 내일 아침 입항';
-    drawText(c, ship, x, y, { font: 'small', color: w.shipPresent ? P.tealDark : P.inkSoft });
+    drawText(c, ship, x, y, { font: 'small', color: w.shipPresent ? P.tealDark : P.inkSoft, maxWidth: cw });
     y += 17;
     rule(ui, x, y, cw);
     y += 6;
@@ -281,16 +287,16 @@ export class JournalPanel implements Panel {
     drawText(c, '밭', x, y, { font: 'small', color: P.inkSoft });
     y += 13;
     if (!crops) {
-      drawText(c, '심은 작물이 없어요.', x, y, { font: 'small', color: P.inkSoft });
-      y += 12;
-      drawText(c, '씨앗방에서 씨앗을 사 보세요.', x, y, { font: 'small', color: P.inkSoft });
-      y += 12;
+      for (const line of wrap(`${tr('심은 작물이 없어요.')} ${tr('씨앗방에서 씨앗을 사 보세요.')}`, cw, 'small', true)) {
+        drawText(c, line, x, y, { font: 'small', color: P.inkSoft, raw: true });
+        y += 12;
+      }
     } else {
-      drawText(c, `자라는 작물 ${crops}그루`, x, y, { font: 'small' });
+      drawText(c, tr('자라는 작물 {n}그루', { n: crops }), x, y, { font: 'small', maxWidth: cw });
       y += 12;
-      drawText(c, ready ? `수확할 수 있어요: ${ready}` : '수확할 작물은 아직 없어요', x, y, { font: 'small', color: ready ? P.tealDark : P.inkSoft });
+      drawText(c, ready ? tr('수확할 수 있어요: {n}', { n: ready }) : '수확할 작물은 아직 없어요', x, y, { font: 'small', color: ready ? P.tealDark : P.inkSoft });
       y += 12;
-      drawText(c, thirsty ? `목마른 작물: ${thirsty}` : '물은 넉넉해요', x, y, { font: 'small', color: thirsty ? P.coralDark : P.inkSoft });
+      drawText(c, thirsty ? tr('목마른 작물: {n}', { n: thirsty }) : '물은 넉넉해요', x, y, { font: 'small', color: thirsty ? P.coralDark : P.inkSoft });
     }
     y += 18;
     rule(ui, x, y, cw);
@@ -307,11 +313,11 @@ export class JournalPanel implements Panel {
       c.fillRect(x, y, 20, 20);
       c.drawImage(Sprites.icon(req.item), x + 2, y + 2);
       const who = NPC_BY_ID.get(req.npc);
-      drawText(c, `${who?.name ?? ''}: ${def.name} ×${req.qty}`, x + 26, y, { font: 'small' });
+      drawText(c, `${tr(who?.name ?? '')}: ${tr(def.name)} ×${req.qty}`, x + 26, y, { font: 'small' });
       const have = countItem(p.inv, req.item);
       drawText(
         c,
-        req.done ? '완료했어요!' : `보상 ${formatGold(req.reward)} · 가진 수량 ${Math.min(have, req.qty)}/${req.qty}`,
+        req.done ? '완료했어요!' : tr('보상 {gold} · 가진 수량 {n}/{max}', { gold: formatGold(req.reward), n: Math.min(have, req.qty), max: req.qty }),
         x + 26,
         y + 11,
         { font: 'small', color: req.done ? P.tealDark : have >= req.qty ? P.tealDark : P.inkSoft },
@@ -325,7 +331,7 @@ export class JournalPanel implements Panel {
     y += 13;
     if (!sat.length) drawText(c, '모든 작물이 제값을 받고 있어요.', x, y, { font: 'small', color: P.inkSoft });
     else for (const [id, v] of sat) {
-      drawText(c, `${findCrop(id)?.name ?? id} 값이 ${Math.round(v * 100)}% 내렸어요`, x, y, { font: 'small', color: P.coralDark });
+      drawText(c, tr('{crop} 값이 {n}% 내렸어요', { crop: findCrop(id)?.name ?? id, n: Math.round(v * 100) }), x, y, { font: 'small', color: P.coralDark });
       y += 12;
     }
   }
@@ -355,7 +361,7 @@ export class JournalPanel implements Panel {
       drawText(c, d.role, r.x + 26 + measure(d.name, 'bold') + 6, r.y + 5, { font: 'small', color: P.inkSoft });
       heartsRow(c, r.x + 26, r.y + 18, f?.points ?? 0);
       const marks = [f?.talked === today ? '대화 ✓' : '대화', f?.gifted === today ? '선물 ✓' : '선물'];
-      drawText(c, marks.join(' · '), r.x + 26, r.y + 28, { font: 'small', color: P.inkSoft });
+      drawText(c, marks.map((m) => tr(m)).join(' · '), r.x + 26, r.y + 28, { font: 'small', color: P.inkSoft, maxWidth: r.w - 30 });
     });
 
     const d = NPCS[this.who];
@@ -369,7 +375,7 @@ export class JournalPanel implements Panel {
     const pose = poses.find((q) => q.id === d.id);
     if (pose) {
       const zone = ZONE_NAME[w.map.zone[Math.floor(pose.y / TILE) * w.map.w + Math.floor(pose.x / TILE)] as keyof typeof ZONE_NAME] ?? '루미나 섬';
-      drawText(c, pose.moving ? `${zone} 쪽으로 걷는 중` : `지금 ${zone}에 있어요`, x + 62, py + 62, { font: 'small', color: P.tealDark });
+      drawText(c, tr(pose.moving ? '{place} 쪽으로 걷는 중' : '지금 {place}에 있어요', { place: zone }), x + 62, py + 62, { font: 'small', color: P.tealDark });
     }
     let y = py + 92;
     rule(ui, x, y, cw);
@@ -392,7 +398,7 @@ export class JournalPanel implements Panel {
     });
     y += 30;
     const next = d.loves.findIndex((_, i) => h < i * 2 + 1);
-    if (next >= 0) drawText(c, `♥ ${next * 2 + 1}개가 되면 하나 더 알게 돼요.`, x, y, { font: 'small', color: P.inkSoft });
+    if (next >= 0) drawText(c, tr('♥ {n}개가 되면 하나 더 알게 돼요.', { n: next * 2 + 1 }), x, y, { font: 'small', color: P.inkSoft });
     y += 16;
     rule(ui, x, y, cw);
     y += 6;
@@ -489,7 +495,7 @@ export class JournalPanel implements Panel {
       rec.lines.slice(0, 11).forEach((l, i) => {
         const yy = py + 26 + i * 18;
         c.drawImage(Sprites.icon(cargoItemId(l.cropId)), rx + 12, yy);
-        drawText(c, `${getItem(cargoItemId(l.cropId)).name} ★${l.q} ×${l.qty}`, rx + 32, yy + 3, { font: 'small' });
+        drawText(c, `${tr(getItem(cargoItemId(l.cropId)).name)} ★${l.q} ×${l.qty}`, rx + 32, yy + 3, { font: 'small' });
         drawText(c, formatGold(l.gold), rx + pw - 12, yy + 3, { font: 'small', align: 'right' });
       });
     }
@@ -497,7 +503,7 @@ export class JournalPanel implements Panel {
     const sat = Object.entries(this.world.state.market).sort((a, b) => b[1] - a[1]).slice(0, 3);
     if (sat.length) {
       const yy = py + 236;
-      drawText(c, `시세 하락: ${sat.map(([id, s]) => `${findCrop(id)?.name} -${Math.round(s * 100)}%`).join(', ')}`, rx + 12, yy, { font: 'small', color: P.coralDark });
+      drawText(c, tr('시세 하락: {list}', { list: sat.map(([id, s]) => `${tr(findCrop(id)?.name ?? id)} -${Math.round(s * 100)}%`).join(', ') }), rx + 12, yy, { font: 'small', color: P.coralDark });
     }
   }
 
@@ -549,7 +555,7 @@ export class ShopPanel implements Panel {
     ui.panel({ x, y, w: W, h: H });
     const def = SHOPS[this.shop];
     drawText(c, def.name, x + 12, y + 8, { font: 'title' });
-    drawText(c, `${def.keeper}: “${this.line}”`, x + 12, y + 28, { font: 'small', color: P.inkSoft });
+    drawText(c, `${tr(def.keeper)}: “${tr(this.line)}”`, x + 12, y + 28, { font: 'small', color: P.inkSoft, maxWidth: W - 24, raw: true });
     c.drawImage(Sprites.coin(), x + W - 100, y + 12);
     drawText(c, formatGold(this.world.gold), x + W - 24, y + 10, { font: 'bold', align: 'right' });
     if (closeButton(ui, x + W - 18, y + 5)) this.closed = true;
@@ -570,9 +576,9 @@ export class ShopPanel implements Panel {
       }
       const it = getItem(id);
       c.drawImage(Sprites.icon(id), r.x + 3, r.y + 3);
-      const name = it.name.length > 11 ? `${it.name.slice(0, 10)}…` : it.name;
-      drawText(c, name, r.x + 23, r.y + 4, { font: 'small', color: it.price > this.world.gold ? '#a8987a' : P.ink });
-      drawText(c, formatGold(it.price), r.x + r.w - 4, r.y + 4, { font: 'small', align: 'right' });
+      const price = formatGold(it.price);
+      drawText(c, it.name, r.x + 23, r.y + 4, { font: 'small', color: it.price > this.world.gold ? '#a8987a' : P.ink, maxWidth: r.w - 32 - measure(price, 'small') });
+      drawText(c, price, r.x + r.w - 4, r.y + 4, { font: 'small', align: 'right' });
       if (it.cropId) {
         const cr = findCrop(it.cropId)!;
         const [lo, hi] = cr.temp;
@@ -611,11 +617,11 @@ export class ShopPanel implements Panel {
       if (ui.arrow(dx + 54, by + 2, 1)) this.qty = Math.min(99, this.qty + (ui.input.keyDown('ShiftLeft') ? 10 : 1));
       // One click for as many as the purse allows.
       const most = Math.max(1, Math.min(99, Math.floor(this.world.gold / Math.max(1, it.price))));
-      if (ui.button({ x: dx, y: by - 19, w: 44, h: 15 }, `최대 ${most}`, { disabled: this.qty === most, font: 'small' })) this.qty = most;
+      if (ui.button({ x: dx, y: by - 19, w: 44, h: 15 }, tr('최대 {n}', { n: most }), { disabled: this.qty === most, font: 'small' })) this.qty = most;
       if (ui.button({ x: dx + 48, y: by - 19, w: 26, h: 15 }, '1', { disabled: this.qty === 1, font: 'small' })) this.qty = 1;
     }
     const total = it.price * (single ? 1 : this.qty);
-    drawText(c, `합계 ${formatGold(total)}`, dx + 76, by + 3, { font: 'small' });
+    drawText(c, tr('합계 {gold}', { gold: formatGold(total) }), dx + 76, by + 3, { font: 'small' });
     const afford = total <= this.world.gold;
     if (ui.button({ x: x + W - 84, y: by - 2, w: 72, h: 22 }, '구매', { tone: afford ? 'brass' : 'paper', disabled: !afford })) {
       this.send({ t: 'buy', shop: this.shop, item: id, qty: single ? 1 : this.qty });
@@ -663,7 +669,7 @@ export class PackingPanel implements Panel {
     });
     const crates = countItem(p.inv, 'crate');
     const cap = p.cart ? CART_CAPACITY : 1;
-    drawText(c, `빈 상자 ${crates}개 · 들고 있는 상자 ${p.carrying.length}/${cap}`, x + 12, y + H - 58, { font: 'small' });
+    drawText(c, tr('빈 상자 {n}개 · 들고 있는 상자 {c}/{max}', { n: crates, c: p.carrying.length, max: cap }), x + 12, y + H - 58, { font: 'small' });
     const s = this.sel >= 0 ? p.inv[this.sel] : null;
     if (s && packable(s.id)) {
       const def = getItem(s.id);
@@ -671,11 +677,11 @@ export class PackingPanel implements Panel {
       const cr = { id: cid, name: def.name };
       const by = y + H - 40;
       icon2x(c, Sprites.icon(s.id), x + 12, by - 6);
-      drawText(c, `${cr.name} ★${s.q ?? 1}`, x + 50, by - 4, { font: 'bold' });
+      drawText(c, `${tr(cr.name)} ★${s.q ?? 1}`, x + 50, by - 4, { font: 'bold' });
       const est = unitPrice(cr.id, s.q ?? 1, this.world.state.market[cr.id] ?? 0, this.world.weather.meanTemp) * this.qty;
-      drawText(c, `예상 ${formatGold(est)}`, x + 50, by + 10, { font: 'small', color: P.inkSoft });
+      drawText(c, tr('예상 {gold}', { gold: formatGold(est) }), x + 50, by + 10, { font: 'small', color: P.inkSoft });
       if (ui.arrow(x + 150, by, -1)) this.qty = Math.max(1, this.qty - 1);
-      drawText(c, `${this.qty}개`, x + 180, by + 1, { font: 'bold', align: 'center' });
+      drawText(c, tr('{n}개', { n: this.qty }), x + 180, by + 1, { font: 'bold', align: 'center' });
       if (ui.arrow(x + 196, by, 1)) this.qty = Math.min(CRATE_CAPACITY, s.qty, this.qty + 1);
       const ok = crates > 0 && p.carrying.length < cap;
       if (ui.button({ x: x + W - 96, y: by - 4, w: 86, h: 22 }, '상자에 담기', { tone: 'brass', disabled: !ok })) {
@@ -695,7 +701,7 @@ export class SleepDialog implements Panel {
 
   draw(ui: UI, vw: number, vh: number): void {
     dimBackground(ui, vw, vh, 0.35);
-    const W = 220;
+    const W = Math.max(220, measure('잠들면 오늘의 항해 일지가 정리돼요.', 'small') + 24);
     const H = 84;
     const x = Math.round((vw - W) / 2);
     const y = Math.round((vh - H) / 2);
@@ -743,7 +749,7 @@ export class RepairPanel implements Panel {
     for (const [id, n] of GREENHOUSE_COST.items) {
       const have = countItem(self.inv, id);
       ready &&= have >= n;
-      row(Sprites.icon(id), `${getItem(id).name} ×${n}`, have >= n, `${have}/${n}`);
+      row(Sprites.icon(id), `${tr(getItem(id).name)} ×${n}`, have >= n, `${have}/${n}`);
     }
     if (ui.button({ x: x + 16, y: y + H - 30, w: 104, h: 22 }, '복원하기', { tone: ready ? 'brass' : 'paper' }) && ready) {
       this.onRepair();
@@ -766,7 +772,7 @@ export class LiftPanel implements Panel {
     dimBackground(ui, vw, vh, 0.35);
     const cols = Math.min(4, this.floors.length);
     const rows = Math.ceil(this.floors.length / cols);
-    const W = Math.max(200, cols * 52 + 32);
+    const W = Math.max(200, cols * 52 + 32, measure('내려갈 층을 고르세요. 5층마다 멈춰요.', 'small') + 24);
     const H = 64 + rows * 28 + 30;
     const x = Math.round((vw - W) / 2);
     const y = Math.round((vh - H) / 2);
@@ -777,7 +783,7 @@ export class LiftPanel implements Panel {
     this.floors.forEach((f, i) => {
       const bx = bx0 + (i % cols) * 52;
       const by = y + 48 + Math.floor(i / cols) * 28;
-      if (ui.button({ x: bx, y: by, w: 46, h: 22 }, `${f}층`, { tone: i === this.floors.length - 1 ? 'brass' : 'paper' })) {
+      if (ui.button({ x: bx, y: by, w: 46, h: 22 }, tr('{n}층', { n: f }), { tone: i === this.floors.length - 1 ? 'brass' : 'paper' })) {
         this.onPick(f);
         this.closed = true;
       }
@@ -819,7 +825,7 @@ export class DaySummaryPanel implements Panel {
     const y = Math.round((vh - H) / 2);
     ui.panel({ x, y, w: W, h: H });
     drawText(c, '오늘의 항해 일지', x + W / 2, y + 10, { font: 'title', align: 'center' });
-    drawText(c, `${formatDate(this.s.day - 1)}의 기록`, x + W / 2, y + 30, { font: 'small', color: P.inkSoft, align: 'center' });
+    drawText(c, tr('{date}의 기록', { date: formatDate(this.s.day - 1) }), x + W / 2, y + 30, { font: 'small', color: P.inkSoft, align: 'center' });
     let yy = y + 48;
     const lines = this.s.shipment?.lines ?? [];
     if (!lines.length) {
@@ -829,7 +835,7 @@ export class DaySummaryPanel implements Panel {
     lines.slice(0, 7).forEach((l, i) => {
       if (this.t < 0.3 + i * 0.25) return;
       c.drawImage(Sprites.icon(cargoItemId(l.cropId)), x + 16, yy);
-      drawText(c, `${getItem(cargoItemId(l.cropId)).name} ★${l.q} × ${l.qty}`, x + 36, yy + 3, { font: 'small' });
+      drawText(c, `${tr(getItem(cargoItemId(l.cropId)).name)} ★${l.q} × ${l.qty}`, x + 36, yy + 3, { font: 'small' });
       drawText(c, formatGold(l.gold), x + W - 16, yy + 3, { font: 'small', align: 'right' });
       yy += 18;
     });
@@ -841,60 +847,84 @@ export class DaySummaryPanel implements Panel {
     drawText(c, formatGold(shown), x + W - 16, y + 186, { font: 'bold', align: 'right', color: P.brassDark });
     const notes: string[] = [];
     const d = this.s.deaths;
-    if (d.frost) notes.push(`서리로 ${d.frost}그루가 시들었어요.`);
-    if (d.rot) notes.push(`비를 너무 맞아 ${d.rot}그루가 짓물렀어요.`);
-    if (d.drought) notes.push(`물이 부족해 ${d.drought}그루가 말랐어요.`);
-    if (this.s.ready) notes.push(`${this.s.ready}그루가 수확을 기다려요.`);
-    if (this.s.giant) notes.push(`밤사이 ${getCrop(this.s.giant).name}가 거대하게 자랐어요!`);
+    if (d.frost) notes.push(tr('서리로 {n}그루가 시들었어요.', { n: d.frost }));
+    if (d.rot) notes.push(tr('비를 너무 맞아 {n}그루가 짓물렀어요.', { n: d.rot }));
+    if (d.drought) notes.push(tr('물이 부족해 {n}그루가 말랐어요.', { n: d.drought }));
+    if (this.s.ready) notes.push(tr('{n}그루가 수확을 기다려요.', { n: this.s.ready }));
+    if (this.s.giant) notes.push(tr('밤사이 {crop}가 거대하게 자랐어요!', { crop: getCrop(this.s.giant).name }));
     if (this.s.passedOut) notes.push('너무 늦게까지 일해서 쓰러졌어요… (체력 70%)');
-    notes.push(`오늘 날씨: ${WEATHER_NAME[this.s.weather.kind]} ${Math.round(this.s.weather.minTemp)}~${Math.round(this.s.weather.maxTemp)}°C`);
+    notes.push(tr('오늘 날씨: {weather} {temp}', { weather: WEATHER_NAME[this.s.weather.kind], temp: fmtTempRange(this.s.weather.minTemp, this.s.weather.maxTemp) }));
     notes.slice(0, 3).forEach((n, i) => drawText(c, n, x + 16, y + 202 + i * 11, { font: 'small', color: P.inkSoft }));
     if (this.t > 0.8 && (ui.button({ x: x + W - 86, y: y + H - 30, w: 72, h: 22 }, '아침으로', { tone: 'brass' }) || ui.input.wasPressed('confirm'))) this.closed = true;
   }
 }
 
+export interface PauseActions {
+  save(): Promise<boolean>;
+  quitToTitle(): void;
+  /** Desktop only: save and close the app. */
+  quitGame?: () => void;
+}
+
+/** Esc: a small menu over the paused island — carry on, settings, save, leave. */
 export class PauseMenu implements Panel {
   closed = false;
   pauses = true;
+  private child: SettingsPanel | null = null;
+  private saving: 'idle' | 'busy' | 'ok' | 'fail' = 'idle';
+  private t = 0;
+
   constructor(
-    private audio: AudioManager,
-    private onQuit: () => void,
+    private game: Game,
+    private world: ClientWorld,
+    private actions: PauseActions,
   ) {}
 
+  update(dt: number): void {
+    this.t += dt;
+    this.child?.update(dt);
+    if (this.child?.closed) this.child = null;
+  }
+
+  onCancel(): boolean {
+    if (!this.child) return false;
+    if (!this.child.onCancel()) this.child = null;
+    return true;
+  }
+
   draw(ui: UI, vw: number, vh: number): void {
+    if (this.child) {
+      this.child.draw(ui, vw, vh);
+      return;
+    }
     dimBackground(ui, vw, vh, 0.5);
-    const W = 240;
-    const H = 214;
+    const W = 250;
+    const n = this.actions.quitGame ? 5 : 4;
+    const H = 74 + n * 27;
     const x = Math.round((vw - W) / 2);
     const y = Math.round((vh - H) / 2);
     const c = ui.ctx;
     ui.panel({ x, y, w: W, h: H });
     drawText(c, '잠시 쉬어가기', x + W / 2, y + 10, { font: 'title', align: 'center' });
-    if (ui.button({ x: x + 20, y: y + 34, w: W - 40, h: 22 }, '계속하기', { tone: 'brass' })) this.closed = true;
-    const sliders: Array<[keyof AudioManager['volumes'], string]> = [
-      ['master', '전체 음량'],
-      ['music', '음악'],
-      ['sfx', '효과음'],
-      ['amb', '환경음'],
-    ];
-    sliders.forEach(([k, label], i) => {
-      const sy = y + 66 + i * 20;
-      drawText(c, label, x + 20, sy, { font: 'small' });
-      const r = { x: x + 90, y: sy + 3, w: 120, h: 8 };
-      ui.inset(r);
-      const v = this.audio.volumes[k];
-      c.fillStyle = P.teal;
-      c.fillRect(r.x + 1, r.y + 1, Math.round((r.w - 2) * v), r.h - 2);
-      c.fillStyle = P.ink;
-      c.fillRect(r.x + Math.round((r.w - 2) * v), r.y - 2, 3, r.h + 4);
-      if (ui.hover(r) && ui.input.mouseDown[0]) {
-        this.audio.volumes[k] = Math.max(0, Math.min(1, (ui.input.mouseX - r.x) / r.w));
-        this.audio.applyVolumes();
-      }
-    });
-    const help = ['이동 WASD · 도구 좌클릭/Space · 달리기 Shift', '상호작용 우클릭/F · 가방 E · 일지 Tab · 지도 M'];
-    help.forEach((h, i) => drawText(c, h, x + W / 2, y + 150 + i * 11, { font: 'small', color: P.inkSoft, align: 'center' }));
-    if (ui.button({ x: x + 20, y: y + H - 32, w: W - 40, h: 22 }, '저장하고 타이틀로')) this.onQuit();
+    const p = this.world.self;
+    drawText(c, `${p.farmName} · ${tr(formatDate(this.world.clock.day))}`, x + W / 2, y + 32, { font: 'small', color: P.inkSoft, align: 'center', raw: true, maxWidth: W - 20 });
+    let by = y + 50;
+    const bw = W - 40;
+    const btn = (label: string, tone?: 'brass' | 'teal' | 'coral', disabled = false) => {
+      const hit = ui.button({ x: x + 20, y: by, w: bw, h: 22 }, label, { tone, disabled });
+      by += 27;
+      return hit;
+    };
+    if (btn('계속하기', 'brass')) this.closed = true;
+    if (btn('설정')) this.child = new SettingsPanel(this.game);
+    const saveLabel = this.saving === 'busy' ? '저장하는 중…' : this.saving === 'ok' ? '저장했어요 ✓' : this.saving === 'fail' ? '저장하지 못했어요' : '지금 저장';
+    if (btn(saveLabel, undefined, this.saving === 'busy')) {
+      this.saving = 'busy';
+      void this.actions.save().then((ok) => (this.saving = ok ? 'ok' : 'fail'));
+    }
+    if (btn('저장하고 타이틀로')) this.actions.quitToTitle();
+    if (this.actions.quitGame && btn('저장하고 게임 종료', 'coral')) this.actions.quitGame();
+    drawText(c, '진행 상황은 30초마다 자동으로 저장돼요.', x + W / 2, y + H - 16, { font: 'tiny', color: P.inkSoft, align: 'center', maxWidth: W - 16 });
   }
 }
 

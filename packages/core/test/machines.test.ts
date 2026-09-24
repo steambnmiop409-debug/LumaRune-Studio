@@ -22,6 +22,7 @@ import {
   type PlayerState,
   type SimContext,
   type WorldState,
+  tr,
 } from '../src';
 import { craft, chestMove } from '../src/sim/machines';
 
@@ -112,7 +113,7 @@ describe('quarry, crafting and machines', () => {
     const jar = state.placed.find((o) => o.id === 99)!;
     const jam = jar.work!.out[0].id;
     expect(jam).toBe('artisan.jam.crop.strawberry');
-    expect(getItem(jam).name).toBe('딸기 잼');
+    expect(tr(getItem(jam).name)).toBe('딸기 잼');
     state.clock.day += 2;
     expect(interact(ctx, p, x, y)).toBeNull();
     expect(countItem(p.inv, jam)).toBe(1);

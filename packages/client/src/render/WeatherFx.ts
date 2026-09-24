@@ -1,3 +1,4 @@
+import { settings } from '../settings';
 import { hash2, type DayWeather } from '@lumina/core';
 
 interface Drop {
@@ -34,7 +35,7 @@ export class WeatherFx {
     if (w.kind === 'storm' && raining) {
       this.nextBolt -= dt;
       if (this.nextBolt <= 0) {
-        this.flash = 1;
+        this.flash = settings.flashes ? 1 : 0.12;
         this.nextBolt = 5 + Math.random() * 12;
         this.onThunder?.(0.4 + Math.random() * 1.5);
       }

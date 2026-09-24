@@ -1,9 +1,14 @@
+import { tr } from '@lumina/core';
 import { hexToRgb } from '../art/palette';
 
 /**
  * Bitmap text. Glyphs come straight from the Galmuri BDF bitmap fonts (converted by
  * tools/font/build.ts), so every letter is placed as exact 1-bit pixels: no browser
  * anti-aliasing, no half pixels, and measurements that match what is drawn.
+ *
+ * Everything drawn or measured here is translated on the way in (see tr() in @lumina/core), so
+ * a Korean literal passed to drawText shows in the player's language. Names the player typed
+ * are drawn with { raw: true }.
  */
 export type FontId = 'body' | 'bold' | 'small' | 'tiny' | 'title';
 
@@ -56,8 +61,27 @@ export async function loadFonts(): Promise<void> {
   );
 }
 
+let cjk: Promise<void> | null = null;
+/** Kanji live in separate files, fetched only when Japanese is chosen. */
+export function loadCjkFonts(): Promise<void> {
+  // Bold has no kanji of its own (it borrows the regular ones), so it has no .cjk file.
+  cjk ??= Promise.all(
+    (['body', 'small', 'tiny', 'title'] as const).map(async (id) => {
+      try {
+        const res = await fetch(`./fonts/${id}.cjk.bin`);
+        if (!res.ok) return;
+        for (const [cp, g] of parse(await res.arrayBuffer()).glyphs) fonts[id].glyphs.set(cp, g);
+      } catch {
+        // Without the kanji file the game still runs; missing kanji show as "?".
+      }
+    }),
+  ).then(() => cache.clear());
+  return cjk;
+}
+
+/** Bold has no kana or kanji of its own: borrow the regular ones. */
 function glyph(f: BitmapFont, cp: number): Glyph {
-  return f.glyphs.get(cp) ?? f.glyphs.get(0x3f)!;
+  return f.glyphs.get(cp) ?? (f === fonts.bold ? fonts.body.glyphs.get(cp) : undefined) ?? f.glyphs.get(0x3f)!;
 }
 
 export function lineHeight(font: FontId = 'body'): number {
@@ -65,7 +89,8 @@ export function lineHeight(font: FontId = 'body'): number {
   return f.ascent + f.descent + 2;
 }
 
-export function measure(text: string, font: FontId = 'body'): number {
+export function measure(text: string, font: FontId = 'body', raw = false): number {
+  if (!raw) text = tr(text);
   const f = fonts[font];
   let w = 0;
   for (const ch of text) w += glyph(f, ch.codePointAt(0)!).dw;
@@ -80,7 +105,7 @@ function sprite(text: string, font: FontId, color: string): HTMLCanvasElement {
   let c = cache.get(key);
   if (c) return c;
   const f = fonts[font];
-  const w = Math.max(1, measure(text, font)) + 2;
+  const w = Math.max(1, measure(text, font, true)) + 2;
   const h = lineHeight(font);
   c = document.createElement('canvas');
   c.width = w;
@@ -121,20 +146,24 @@ export interface TextOpts {
   align?: 'left' | 'center' | 'right';
   /** Truncate with "…" to fit this width. */
   maxWidth?: number;
+  /** Text the player typed (names): shown as is, never translated. */
+  raw?: boolean;
 }
 
 /** Fits text into `maxW` pixels, adding an ellipsis if needed. */
-export function fit(text: string, maxW: number, font: FontId = 'body'): string {
-  if (measure(text, font) <= maxW) return text;
+export function fit(text: string, maxW: number, font: FontId = 'body', raw = false): string {
+  if (!raw) text = tr(text);
+  if (measure(text, font, true) <= maxW) return text;
   let s = text;
-  while (s.length > 1 && measure(`${s}…`, font) > maxW) s = s.slice(0, -1);
+  while (s.length > 1 && measure(`${s}…`, font, true) > maxW) s = s.slice(0, -1);
   return `${s}…`;
 }
 
 /** Draws pixel text at integer coordinates (top-left of the line box). Returns the width. */
 export function drawText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, o: TextOpts = {}): number {
   const font = o.font ?? 'body';
-  if (o.maxWidth) text = fit(text, o.maxWidth, font);
+  if (!o.raw) text = tr(text);
+  if (o.maxWidth) text = fit(text, o.maxWidth, font, true);
   const color = o.color ?? '#2b2d4a';
   const spr = sprite(text, font, color);
   const w = spr.width - 2;
@@ -160,25 +189,29 @@ export function drawText(ctx: CanvasRenderingContext2D, text: string, x: number,
   return w;
 }
 
-/** Word-wraps text (breaks on spaces, falls back to characters for long Korean runs). */
-export function wrap(text: string, maxW: number, font: FontId = 'body'): string[] {
+/** Characters that may not start a line in Japanese (kinsoku): they stay with the one before. */
+const NO_START = new Set('、。，．・：；？！ー」』）】〉》ぁぃぅぇぉっゃゅょァィゥェォッャュョ…'.split(''));
+
+/** Word-wraps text (breaks on spaces, falls back to characters for long Korean or Japanese runs). */
+export function wrap(text: string, maxW: number, font: FontId = 'body', raw = false): string[] {
+  if (!raw) text = tr(text);
   const out: string[] = [];
   for (const para of text.split('\n')) {
     let line = '';
     for (const word of para.split(' ')) {
       const test = line ? `${line} ${word}` : word;
-      if (measure(test, font) <= maxW) {
+      if (measure(test, font, true) <= maxW) {
         line = test;
         continue;
       }
       if (line) out.push(line);
-      if (measure(word, font) <= maxW) {
+      if (measure(word, font, true) <= maxW) {
         line = word;
         continue;
       }
       line = '';
       for (const ch of word) {
-        if (measure(line + ch, font) > maxW) {
+        if (measure(line + ch, font, true) > maxW && !NO_START.has(ch)) {
           out.push(line);
           line = ch;
         } else line += ch;

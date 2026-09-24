@@ -1,4 +1,5 @@
-import { CLOTH_COLORS, NPC_BY_ID, TILE, Terrain, WEATHER_NAME, ZONE_NAME, allNpcPoses, formatDate, hash2, type WorldMap } from '@lumina/core';
+import { CLOTH_COLORS, NPC_BY_ID, TILE, Terrain, WEATHER_NAME, ZONE_NAME, allNpcPoses, formatDate, hash2, tr, type WorldMap } from '@lumina/core';
+import { fmtTemp } from './format';
 import { P, mix, shade } from '../art/palette';
 import type { AudioManager } from '../audio/AudioManager';
 import { drawText, measure } from '../engine/text';
@@ -398,10 +399,10 @@ export class MapPanel implements Panel {
     sy += 6;
     drawText(c, formatDate(this.world.clock.day), sx + 8, sy, { font: 'bold' });
     sy += 14;
-    drawText(c, `${WEATHER_NAME[this.world.weather.kind]} · ${Math.round(this.world.weather.meanTemp)}°C`, sx + 8, sy, { font: 'small', color: P.inkSoft });
+    drawText(c, tr('{weather} · {temp}', { weather: WEATHER_NAME[this.world.weather.kind], temp: fmtTemp(this.world.weather.meanTemp) }), sx + 8, sy, { font: 'small', color: P.inkSoft });
     sy += 14;
-    const here = me.floor ? `광산 ${me.floor}층` : ZONE_NAME[map.zone[Math.floor(me.y / TILE) * map.w + Math.floor(me.x / TILE)] as keyof typeof ZONE_NAME] ?? '루미나 섬';
-    drawText(c, `지금: ${here}`, sx + 8, sy, { font: 'small', color: P.coralDark });
+    const here = me.floor ? tr('광산 {n}층', { n: me.floor }) : ZONE_NAME[map.zone[Math.floor(me.y / TILE) * map.w + Math.floor(me.x / TILE)] as keyof typeof ZONE_NAME] ?? '루미나 섬';
+    drawText(c, tr('지금: {place}', { place: here }), sx + 8, sy, { font: 'small', color: P.coralDark, maxWidth: sw - 16 });
     sy += 16;
     c.fillStyle = P.paperShade;
     c.fillRect(sx + 6, sy, sw - 12, 1);
@@ -417,7 +418,7 @@ export class MapPanel implements Panel {
       c.fillRect(sx + 9, sy + 3, 3, 3);
       const zone = ZONE_NAME[map.zone[Math.floor(n.y / TILE) * map.w + Math.floor(n.x / TILE)] as keyof typeof ZONE_NAME] ?? '';
       const nw = drawText(c, def.name, sx + 17, sy, { font: 'small' });
-      drawText(c, n.moving ? `${zone}로 가는 중` : zone, sx + 21 + nw, sy, { font: 'small', color: P.inkSoft });
+      drawText(c, n.moving ? tr('{place}로 가는 중', { place: zone }) : zone, sx + 21 + nw, sy, { font: 'small', color: P.inkSoft, maxWidth: sw - 25 - nw });
       sy += 12;
     }
     sy += 4;

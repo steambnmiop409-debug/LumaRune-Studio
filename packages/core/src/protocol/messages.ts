@@ -11,10 +11,15 @@ export interface SaveSlotInfo {
   day: number;
   gold: number;
   savedAt: number;
+  /** How the host farmer looks (for the slot's portrait). */
+  look?: Appearance;
+  lifetime?: number;
 }
 
 export type ClientMessage =
   | { t: 'listSaves' }
+  /** Deletes a world from the title screen (not the one currently open). */
+  | { t: 'deleteSave'; slot: number }
   | { t: 'join'; slot: number; newGame?: { name: string; farmName: string; look: Appearance } }
   | { t: 'move'; x: number; y: number; dir: Dir; moving: boolean }
   | { t: 'useItem'; slot: number; tx: number; ty: number }

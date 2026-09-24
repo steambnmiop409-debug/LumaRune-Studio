@@ -29,3 +29,4 @@ export * from './sim/machines';
 export * from './sim/mine';
 export * from './sim/greenhouse';
 export * from './data/crafting';
+export * from './i18n';

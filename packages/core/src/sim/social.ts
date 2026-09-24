@@ -1,5 +1,6 @@
+import { L } from '../i18n';
 import { CROPS } from '../data/crops';
-import { FORAGE, ORCHARD_FRUIT, getItem, parseArtisan } from '../data/items';
+import { FORAGE, ORCHARD_FRUIT, bareName, getItem, parseArtisan } from '../data/items';
 import { NPCS, NPC_BY_ID, type GiftReaction, type NpcDef } from '../data/npcs';
 import { addItem, canFit, countItem, removeItem } from '../inventory/inventory';
 import type { Rng } from '../math/rng';
@@ -65,8 +66,8 @@ export function giftReaction(npc: NpcDef, itemId: string): { reaction: GiftReact
   const byType = npc.artisan[art.type] ?? 'liked';
   const fromFav = !!art.source && plain(art.source) === 'loved';
   const reaction: GiftReaction = byType === 'disliked' ? 'disliked' : fromFav ? 'loved' : byType;
-  const srcName = art.source ? getItem(art.source).name.replace(/^과수원 /, '') : '';
-  const text = byType !== 'disliked' && fromFav ? npc.lines.favSource.replace('{src}', srcName) : (npc.lines.made[art.type] ?? (reaction === 'disliked' ? npc.lines.disliked : npc.lines.handmade));
+  const srcName = art.source ? bareName(art.source) : '';
+  const text = byType !== 'disliked' && fromFav ? L(npc.lines.favSource, { src: srcName }) : (npc.lines.made[art.type] ?? (reaction === 'disliked' ? npc.lines.disliked : npc.lines.handmade));
   return { reaction, text, handmade: true };
 }
 
@@ -75,9 +76,9 @@ export function gift(ctx: SimContext, p: PlayerState, npcId: string, slot: numbe
   const npc = NPC_BY_ID.get(npcId)!;
   const stack = p.inv[slot];
   if (!stack) return null;
-  if (!GIFTABLE.has(getItem(stack.id).kind)) return `${npc.name}에게는 작물·채집물·가공품·보석을 선물할 수 있어요.`;
+  if (!GIFTABLE.has(getItem(stack.id).kind)) return L('{npc}에게는 작물·채집물·가공품·보석을 선물할 수 있어요.', { npc: npc.name });
   const f = friendship(state, npcId);
-  if (f.gifted === state.clock.day) return `${npc.name}에게는 오늘 이미 선물했어요.`;
+  if (f.gifted === state.clock.day) return L('{npc}에게는 오늘 이미 선물했어요.', { npc: npc.name });
   const { reaction, text, handmade } = giftReaction(npc, stack.id);
   // Handmade gifts count for more: time and care went into them.
   const gain = { loved: 80, liked: 45, neutral: 20, disliked: -20 }[reaction] + (stack.q ?? 1) * 4 + (handmade && reaction !== 'disliked' ? 20 : 0);
@@ -105,15 +106,15 @@ export function pickForage(ctx: SimContext, p: PlayerState, x: number, y: number
 export function deliverRequest(ctx: SimContext, p: PlayerState): string | null {
   const req = ctx.state.request;
   if (!req || req.done) return '오늘의 의뢰가 없어요.';
-  if (countItem(p.inv, req.item) < req.qty) return `${getItem(req.item).name} ${req.qty}개가 필요해요.`;
+  if (countItem(p.inv, req.item) < req.qty) return L('{item} {n}개가 필요해요.', { item: getItem(req.item).name, n: req.qty });
   removeItem(p.inv, req.item, req.qty);
   ctx.state.gold += req.reward;
   req.done = true;
   const f = friendship(ctx.state, req.npc);
   f.points = Math.min(MAX_HEARTS * POINTS_PER_HEART, f.points + 60);
   const npc = NPC_BY_ID.get(req.npc)!;
-  ctx.emit({ t: 'dialogue', npc: req.npc, text: `정말 고마워요! 약속한 ${req.reward.toLocaleString()}G예요.`, hearts: hearts(f), gift: 'loved' }, p.id);
-  ctx.emit({ t: 'toast', text: `의뢰 완료: ${npc.name} (+${req.reward.toLocaleString()}G)`, tone: 'good' }, p.id);
+  ctx.emit({ t: 'dialogue', npc: req.npc, text: L('정말 고마워요! 약속한 {gold}G예요.', { gold: req.reward }), hearts: hearts(f), gift: 'loved' }, p.id);
+  ctx.emit({ t: 'toast', text: L('의뢰 완료: {npc} (+{gold}G)', { npc: npc.name, gold: req.reward }), tone: 'good' }, p.id);
   ctx.touchPlayer(p.id);
   return null;
 }

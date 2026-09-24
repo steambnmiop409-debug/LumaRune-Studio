@@ -1,3 +1,4 @@
+import { formatNumber } from '@lumina/core';
 import { getItem, type ItemStack } from '@lumina/core';
 import { Sprites } from '../art/Sprites';
 import { P, shade } from '../art/palette';
@@ -82,13 +83,19 @@ export class UI {
       c.fillStyle = P.brass;
       c.fillRect(r.x + 2, y + 1, r.w - 4, 1);
     }
+    // Longer translations step down a font size before they'd be cut short.
+    const room = r.w - 6 - (o.icon ? o.icon.width + 3 : 0);
+    let font: FontId = o.font ?? 'body';
+    if (measure(label, font) > room && font === 'body') font = 'small';
+    if (measure(label, font) > room && font === 'small') font = 'tiny';
+    const lw = Math.min(room, measure(label, font));
     let tx = r.x + r.w / 2;
     if (o.icon) {
-      const total = o.icon.width + 3 + measure(label, o.font ?? 'body');
+      const total = o.icon.width + 3 + lw;
       c.drawImage(o.icon, Math.round(r.x + (r.w - total) / 2), Math.round(y + (r.h - 2 - o.icon.height) / 2));
-      tx = r.x + (r.w - total) / 2 + o.icon.width + 3 + measure(label, o.font ?? 'body') / 2;
+      tx = r.x + (r.w - total) / 2 + o.icon.width + 3 + lw / 2;
     }
-    drawText(c, label, tx, y + Math.floor((r.h - 2 - lineHeight(o.font ?? 'body')) / 2) + 1, { font: o.font ?? 'body', color: o.disabled ? '#8a7e68' : P.ink, align: 'center' });
+    drawText(c, label, tx, y + Math.floor((r.h - 2 - lineHeight(font)) / 2) + 1, { font, color: o.disabled ? '#8a7e68' : P.ink, align: 'center', maxWidth: room });
     return !o.disabled && this.clicked(r);
   }
 
@@ -160,10 +167,10 @@ export class UI {
       this.ctx.fillRect(r.x, r.y + r.h - 1, r.w, 1);
     }
     const value = field.value;
-    drawText(this.ctx, value || placeholder, r.x + 4, r.y + Math.floor((r.h - 14) / 2) + 1, { color: value ? P.ink : '#a8987a' });
+    drawText(this.ctx, value || placeholder, r.x + 4, r.y + Math.floor((r.h - 14) / 2) + 1, { color: value ? P.ink : '#a8987a', raw: !!value, maxWidth: r.w - 8 });
     if (focused && Math.floor(performance.now() / 500) % 2 === 0) {
       this.ctx.fillStyle = P.ink;
-      this.ctx.fillRect(r.x + 5 + measure(value), r.y + 3, 1, r.h - 6);
+      this.ctx.fillRect(r.x + 5 + measure(value, 'body', true), r.y + 3, 1, r.h - 6);
     }
     if (this.clicked(r)) field.focus();
   }
@@ -210,5 +217,5 @@ export class TextField {
 }
 
 export function formatGold(n: number): string {
-  return `${Math.round(n).toLocaleString('ko-KR')}G`;
+  return `${formatNumber(Math.round(n))}G`;
 }

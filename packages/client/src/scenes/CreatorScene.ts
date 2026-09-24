@@ -16,6 +16,7 @@ import {
   TOP_STYLES,
   fullAppearance,
   randomAppearance,
+  tr,
   type Appearance,
   type Dir,
   type ServerMessage,
@@ -177,7 +178,7 @@ export class CreatorScene implements Scene {
     const ok = this.name.value.trim().length > 0;
     if (ui.button({ x: x + W - 140, y: y + H - 36, w: 126, h: 24 }, '섬에서 시작하기', { tone: 'brass', disabled: !ok || this.sent })) {
       this.sent = true;
-      this.conn.send({ t: 'join', slot: this.slot, newGame: { name: this.name.value.trim(), farmName: this.farm.value.trim() || `${this.name.value.trim()}의 농장`, look: this.look } });
+      this.conn.send({ t: 'join', slot: this.slot, newGame: { name: this.name.value.trim(), farmName: this.farm.value.trim() || tr('{name}의 농장', { name: this.name.value.trim() }), look: this.look } });
     }
     if (!ok) drawText(ctx, '이름을 적어 주세요', x + W - 148, y + H - 30, { font: 'small', color: P.coralDark, align: 'right' });
   }

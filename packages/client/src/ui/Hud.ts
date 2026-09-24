@@ -5,14 +5,15 @@ import {
   WEATHER_NAME,
   findCrop,
   formatDate,
-  formatTime,
   getItem,
   isPrecipitating,
   temperatureAt,
   type CargoCrate,
   type DayWeather,
   type PlayerState,
+  tr,
 } from '@lumina/core';
+import { fmtTemp, fmtTempRange, fmtTime } from './format';
 import { Sprites } from '../art/Sprites';
 import { P, mix } from '../art/palette';
 import { drawText, measure, wrap } from '../engine/text';
@@ -74,12 +75,12 @@ export class Hud {
   private lastSel = -1;
 
   toast(text: string, tone: Toast['tone'] = 'info', icon?: HTMLCanvasElement): void {
-    this.toasts.push({ text, tone, t: 0, icon });
+    this.toasts.push({ text: tr(text), tone, t: 0, icon });
     if (this.toasts.length > 5) this.toasts.shift();
   }
 
   showBanner(text: string): void {
-    this.banner = { text, t: 0 };
+    this.banner = { text: tr(text), t: 0 };
   }
 
   update(dt: number, gold: number): void {
@@ -104,7 +105,9 @@ export class Hud {
   /** Top-right: the Sky Dial. Returns true when hovered (shows the forecast). */
   skyDial(ui: UI, vw: number, minute: number, day: number, weather: DayWeather, forecast: DayWeather, shipPresent: boolean, departed: boolean, gold: number, time: number): void {
     const ctx = ui.ctx;
-    const W = 132;
+    // Wide enough for the longest line in the player's language (German dates run long).
+    const tempLine = tr('{temp} {weather}', { temp: fmtTemp(temperatureAt(weather, minute)), weather: WEATHER_NAME[weather.kind] });
+    const W = Math.min(200, Math.max(132, 64 + Math.max(measure(fmtTime(minute), 'bold'), measure(formatDate(day), 'small'), measure(tempLine, 'small') + 14)));
     const x = vw - W - 6;
     const y = 6;
     ui.panel({ x, y, w: W, h: 50 });
@@ -178,11 +181,10 @@ export class Hud {
     ctx.fillRect(cx - R - 1, cy, R * 2 + 2, 1);
 
     const tx = x + 60;
-    drawText(ctx, formatTime(minute), tx, y + 5, { font: 'bold' });
-    drawText(ctx, formatDate(day), tx, y + 19, { font: 'small' });
-    const temp = Math.round(temperatureAt(weather, minute));
+    drawText(ctx, fmtTime(minute), tx, y + 5, { font: 'bold', maxWidth: x + W - 4 - tx });
+    drawText(ctx, formatDate(day), tx, y + 19, { font: 'small', maxWidth: x + W - 4 - tx });
     ctx.drawImage(Sprites.weather(weather.kind), tx - 1, y + 33);
-    drawText(ctx, `${temp}°C ${WEATHER_NAME[weather.kind]}`, tx + 14, y + 33, { font: 'small' });
+    drawText(ctx, tempLine, tx + 14, y + 33, { font: 'small', maxWidth: x + W - 4 - tx - 14 });
 
     // Ship chip.
     const chip = { x: vw - W - 6, y: y + 52, w: W, h: 15 };
@@ -192,7 +194,7 @@ export class Hud {
     ui.ctx.fillRect(chip.x, chip.y, chip.w, chip.h);
     ui.ctx.fillStyle = urgent && Math.floor(time * 3) % 2 ? P.brassLight : '#e8d8b2';
     ui.ctx.fillRect(chip.x + 1, chip.y + 1, chip.w - 2, chip.h - 2);
-    const shipText = shipPresent && !departed && left > 0 ? `출항까지 ${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}` : '배는 내일 06:00 도착';
+    const shipText = shipPresent && !departed && left > 0 ? tr('출항까지 {t}', { t: `${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}` }) : tr('배는 내일 {t} 도착', { t: fmtTime(360) });
     // Tiny anchor glyph.
     const ax = chip.x + 5;
     const ay = chip.y + 3;
@@ -202,7 +204,7 @@ export class Hud {
     ctx.fillRect(ax, ay + 6, 1, 1);
     ctx.fillRect(ax + 6, ay + 6, 1, 1);
     ctx.fillRect(ax + 1, ay + 7, 5, 1);
-    drawText(ctx, shipText, chip.x + 15, chip.y + 2, { font: 'small', color: urgent ? P.coralDark : P.ink });
+    drawText(ctx, shipText, chip.x + 15, chip.y + 2, { font: 'small', color: urgent ? P.coralDark : P.ink, maxWidth: chip.w - 18 });
 
     // Money pouch.
     const mx = vw - 6 - 86;
@@ -216,7 +218,7 @@ export class Hud {
       ui.tooltip(
         [
           { text: '내일 날씨', font: 'bold' },
-          { text: `${WEATHER_NAME[forecast.kind]} · ${Math.round(forecast.minTemp)}~${Math.round(forecast.maxTemp)}°C` },
+          { text: tr('{weather} · {temp}', { weather: WEATHER_NAME[forecast.kind], temp: fmtTempRange(forecast.minTemp, forecast.maxTemp) }) },
           { text: forecast.kind === 'rain' || forecast.kind === 'storm' ? '비에 약한 작물은 비가림막으로 지켜 주세요.' : forecast.minTemp < 0 ? '서리 주의! 추위에 약한 작물이 위험해요.' : '밭일하기 좋은 날이에요.', font: 'small', color: P.inkSoft },
         ],
         x - 150,
@@ -273,7 +275,8 @@ export class Hud {
   saveBadge(ui: UI, vw: number, vh: number, left: number, time: number): void {
     const ctx = ui.ctx;
     ctx.globalAlpha = Math.min(1, left / 0.4);
-    const x = vw - 84;
+    const tw = measure('저장 중', 'small');
+    const x = vw - 30 - 17 - tw;
     const y = vh - 20;
     ctx.fillStyle = P.ink;
     ctx.fillRect(x, y, 13, 11);
@@ -307,7 +310,7 @@ export class Hud {
     ctx.fillStyle = '#5e9a4a';
     ctx.fillRect(x + 4, y + h + 1, 6, 3);
     ctx.fillRect(x + 5, y + h, 4, 5);
-    if (ui.hover({ x, y, w: 14, h: h + 6 })) ui.tooltip([{ text: `체력 ${p.stamina}/${p.maxStamina}`, font: 'bold' }, { text: '잠을 자면 회복돼요.', font: 'small' }], x - 110, y);
+    if (ui.hover({ x, y, w: 14, h: h + 6 })) ui.tooltip([{ text: tr('체력 {n}/{max}', { n: p.stamina, max: p.maxStamina }), font: 'bold' }, { text: '잠을 자면 회복돼요.', font: 'small' }], x - 110, y);
   }
 
   carrying(ui: UI, vw: number, vh: number, crates: CargoCrate[], cart: boolean): void {
@@ -317,7 +320,7 @@ export class Hud {
     const x = Math.round(vw / 2 - w / 2);
     const y = vh - 28 - 44;
     ui.panel({ x, y, w, h: 38 });
-    drawText(ctx, `운반 중 (${crates.length}/${cart ? 4 : 1})`, x + 6, y + 4, { font: 'small', color: P.inkSoft });
+    drawText(ctx, tr('운반 중 ({n}/{max})', { n: crates.length, max: cart ? 4 : 1 }), x + 6, y + 4, { font: 'small', color: P.inkSoft });
     crates.slice(0, 4).forEach((c, i) => {
       const cx = x + 6 + i * 30;
       ctx.drawImage(Sprites.crate('#e8836b'), cx, y + 17);
@@ -326,7 +329,7 @@ export class Hud {
     });
     if (crates.length === 1) {
       const c = crates[0];
-      drawText(ctx, `${getItem(cargoItemId(c.cropId)).name} ★${c.q}`, x + 46, y + 20, { font: 'small' });
+      drawText(ctx, `${tr(getItem(cargoItemId(c.cropId)).name)} ★${c.q}`, x + 46, y + 20, { font: 'small' });
     }
   }
 

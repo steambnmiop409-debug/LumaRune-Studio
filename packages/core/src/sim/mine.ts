@@ -1,3 +1,4 @@
+import { L } from '../i18n';
 import { getItem } from '../data/items';
 import type { Rng } from '../math/rng';
 import type { NodeKind, PlayerState, WorldState } from '../state/types';
@@ -78,8 +79,8 @@ export function enterMine(ctx: SimContext, p: PlayerState, floor: number): strin
   state.mine.deepest = Math.max(state.mine.deepest, floor);
   place(ctx, p, floor, f.up.x * TILE + TILE / 2, (f.up.y + 1) * TILE + TILE - 3);
   ctx.emit({ t: 'fx', kind: 'ladder', x: f.up.x, y: f.up.y + 1, by: p.id, floor }, p.id);
-  if (first && floor % 5 === 0) ctx.emit({ t: 'toast', text: `${floor}층 도달! 입구의 승강기로 바로 내려올 수 있어요.`, tone: 'good' }, p.id);
-  if (first && (floor === 10 || floor === 20)) ctx.emit({ t: 'toast', text: `${MINE_THEME_NAME[mineTheme(floor)]}에 들어섰어요.`, tone: 'info' }, p.id);
+  if (first && floor % 5 === 0) ctx.emit({ t: 'toast', text: L('{n}층 도달! 입구의 승강기로 바로 내려올 수 있어요.', { n: floor }), tone: 'good' }, p.id);
+  if (first && (floor === 10 || floor === 20)) ctx.emit({ t: 'toast', text: L('{place}에 들어섰어요.', { place: MINE_THEME_NAME[mineTheme(floor)] }), tone: 'info' }, p.id);
   return null;
 }
 
@@ -142,7 +143,7 @@ export function mineUseItem(ctx: SimContext, p: PlayerState, slot: number, x: nu
     if (def.kind === 'seed' || def.kind === 'placeable' || (def.kind === 'tool' && def.tool !== 'pick')) return '광산 안에서는 곡괭이만 쓸 수 있어요.';
     return null;
   }
-  if (def.tool !== 'pick') return def.kind === 'tool' ? `${NODE_NAME[rock]}은(는) 곡괭이로 깰 수 있어요.` : null;
+  if (def.tool !== 'pick') return def.kind === 'tool' ? L('{node}은(는) 곡괭이로 깰 수 있어요.', { node: NODE_NAME[rock] }) : null;
   if (p.stamina < 4) return '너무 지쳤어요. 오늘은 쉬어야 해요.';
   p.stamina -= 4;
   delete rocks[key];

@@ -3,6 +3,7 @@ import {
   REACH_PX,
   SHOPS,
   TILE,
+  tr,
   Terrain,
   ZONE_NAME,
   findCrop,
@@ -47,6 +48,8 @@ import { Hud } from '../ui/Hud';
 import { formatGold } from '../ui/kit';
 import { DaySummaryPanel, JournalPanel, LiftPanel, RepairPanel, PackingPanel, PauseMenu, ShopPanel, SleepDialog, type Panel } from '../ui/panels';
 import { TitleScene } from './TitleScene';
+import { keyName, settings } from '../settings';
+import { host } from '../platform/host';
 import { BoardPanel, DialoguePanel } from '../ui/social';
 import { ChestPanel, CraftPanel } from '../ui/crafting';
 import { InventoryPanel } from '../ui/inventory';
@@ -147,8 +150,8 @@ export class GameScene implements Scene {
     this.game = game;
     const { width, height } = game.screen;
     this.view.centerOn(this.px, this.py - 12, width, height);
-    this.hud.toast(`${this.world.self.farmName}에 오신 걸 환영해요!`, 'good');
-    if (this.world.clock.day === 0) {
+    this.hud.toast(tr('{farm}에 오신 걸 환영해요!', { farm: this.world.self.farmName }), 'good');
+    if (this.world.clock.day === 0 && settings.hints) {
       this.hud.toast('괭이로 밭을 갈고 씨앗을 심어 보세요.', 'info');
       this.hud.toast('수확물은 포장대에서 상자에 담아 부두의 배로!', 'info');
     }
@@ -288,7 +291,7 @@ export class GameScene implements Scene {
     if (this.panel) {
       this.panel.update?.(dt);
       if (
-        input.wasPressed('cancel') ||
+        (input.wasPressed('cancel') && !this.panel.onCancel?.()) ||
         (this.panel instanceof JournalPanel && input.wasPressed('journal')) ||
         (this.panel instanceof InventoryPanel && input.wasPressed('inventory')) ||
         (this.panel instanceof MapPanel && input.wasPressed('map'))
@@ -356,7 +359,7 @@ export class GameScene implements Scene {
     if (arrived) {
       this.shownFloor = floor;
       this.zone = 0;
-      if (floor) this.hud.showBanner(`광산 ${floor}층 · ${MINE_THEME_NAME[mineFloor(world.state.seed, floor).theme]}`);
+      if (floor) this.hud.showBanner(tr('광산 {n}층 · {place}', { n: floor, place: MINE_THEME_NAME[mineFloor(world.state.seed, floor).theme] }));
     }
 
     // Zone banner.
@@ -399,7 +402,14 @@ export class GameScene implements Scene {
       this.panel = new MapPanel(world, game.audio);
       return;
     }
-    if (input.wasPressed('cancel')) this.open(new PauseMenu(game.audio, () => this.quit()));
+    if (input.wasPressed('cancel'))
+      this.open(
+        new PauseMenu(game, world, {
+          save: () => this.save(),
+          quitToTitle: () => void this.quit(),
+          quitGame: host ? () => void this.save().then(() => host!.quit()) : undefined,
+        }),
+      );
     if (import.meta.env.DEV) {
       if (input.keyPressed('F1')) this.send({ t: 'debug', cmd: 'weather', arg: (['clear', 'cloudy', 'rain', 'storm', 'fog', 'snow'].indexOf(world.weather.kind) + 1) % 6 });
       if (input.keyPressed('F2')) this.send({ t: 'debug', cmd: 'skip', arg: 60 });
@@ -422,7 +432,7 @@ export class GameScene implements Scene {
       else if (my) this.dir = my < 0 ? 'up' : 'down';
       if (mx && my && !(this.dir === 'left' || this.dir === 'right')) this.dir = my < 0 ? 'up' : 'down';
       const len = Math.hypot(mx, my);
-      const run = input.isDown('run') && self.stamina > 0 ? 1.35 : 1;
+      const run = input.isDown('run') !== settings.autoRun && self.stamina > 0 ? 1.35 : 1;
       const speed = SPEED * run * (self.carrying.length ? 0.8 : 1);
       const dx = (mx / len) * speed * dt;
       const dy = (my / len) * speed * dt;
@@ -616,12 +626,12 @@ export class GameScene implements Scene {
       }
       case 'shipLoaded':
         audio.play('crate');
-        if (e.by === me) this.hud.toast(`출하 상자 ${e.crates}개를 배에 실었어요.`, 'good');
+        if (e.by === me) this.hud.toast(tr('출하 상자 {n}개를 배에 실었어요.', { n: e.crates }), 'good');
         break;
       case 'shipDeparted':
         this.view.shipLeaves();
         audio.play('horn', { volume: 0.9 });
-        if (e.record.total > 0) this.hud.toast(`배가 출항했어요! 오늘의 출하 ${formatGold(e.record.total)}`, 'good');
+        if (e.record.total > 0) this.hud.toast(tr('배가 출항했어요! 오늘의 출하 {gold}', { gold: formatGold(e.record.total) }), 'good');
         else this.hud.toast('배가 출항했어요. 내일 아침 6시에 돌아와요.', 'info');
         break;
       case 'shipArrived':
@@ -659,7 +669,7 @@ export class GameScene implements Scene {
         audio.play('coin', { rate: 1.3, volume: 0.6 });
         audio.play('crate', { volume: 0.5, delay: 0.05 });
         if (this.panel instanceof CraftPanel) this.panel.crafted();
-        this.hud.toast(`${getItem(e.item).name}${e.qty > 1 ? ` ×${e.qty}` : ''} 제작!`, 'good', Sprites.icon(e.item));
+        this.hud.toast(e.qty > 1 ? tr('{item} ×{n} 제작!', { item: getItem(e.item).name, n: e.qty }) : tr('{item} 제작!', { item: getItem(e.item).name }), 'good', Sprites.icon(e.item));
         break;
       case 'gain':
         this.pickups.push({ img: Sprites.icon(e.item), x: e.x * TILE + 8, y: e.y * TILE + 4, t: Math.random() * 0.1, label: `+${e.qty}` });
@@ -676,7 +686,7 @@ export class GameScene implements Scene {
         break;
       case 'bought':
         audio.play('coin');
-        this.hud.toast(`${getItem(e.item).name} ×${e.qty} 구매 (${formatGold(e.gold)})`, 'good', Sprites.icon(e.item));
+        this.hud.toast(tr('{item} ×{n} 구매 ({gold})', { item: getItem(e.item).name, n: e.qty, gold: formatGold(e.gold) }), 'good', Sprites.icon(e.item));
         break;
     }
   }
@@ -794,7 +804,7 @@ export class GameScene implements Scene {
     const cy = Math.round(this.view.camY);
 
     // Other players' name tags.
-    for (const o of world.others.values()) if (!o.floor) drawText(ctx, o.name, Math.round(o.rx - cx), Math.round(o.ry - 44 - cy), { font: 'small', color: P.paperLight, outline: P.ink, align: 'center' });
+    for (const o of world.others.values()) if (!o.floor) drawText(ctx, o.name, Math.round(o.rx - cx), Math.round(o.ry - 44 - cy), { font: 'small', color: P.paperLight, outline: P.ink, align: 'center', raw: true });
 
     for (const p of input.players) {
       const npc = NPC_BY_ID.get(p.id);
@@ -828,7 +838,7 @@ export class GameScene implements Scene {
       if (npcHere) {
         const heldKind = held ? getItem(held.id).kind : null;
         const name = NPC_BY_ID.get(npcHere)!.name;
-        label = heldKind && GIFTABLE.has(heldKind) ? `${name}와 대화 · 클릭: 선물` : `${name}와 대화`;
+        label = heldKind && GIFTABLE.has(heldKind) ? tr('{npc}와 대화 · 클릭: 선물', { npc: name }) : tr('{npc}와 대화', { npc: name });
         lx = tx * TILE + 8 - cx;
         ly = ty * TILE - 30 - cy;
       } else if (placedHere && MACHINE_NAME[placedHere.kind]) {
@@ -838,35 +848,35 @@ export class GameScene implements Scene {
         const stored = placedHere.store?.some((st) => st);
         label =
           placedHere.kind === 'chest'
-            ? `${name} 열기`
+            ? tr('{machine} 열기', { machine: name })
             : w && now >= w.ready
-              ? `${name} · ${getItem(w.out[0].id).name} 꺼내기`
+              ? tr('{machine} · {item} 꺼내기', { machine: name, item: getItem(w.out[0].id).name })
               : w
-                ? `${name} · ${timeLeft(w.ready - now)} 남음`
+                ? tr('{machine} · {left} 남음', { machine: name, left: timeLeft(w.ready - now) })
                 : placedHere.kind === 'harvester'
                   ? stored
-                    ? `${name} · 수확물 꺼내기`
-                    : `${name} · 내일 아침 수확`
+                    ? tr('{machine} · 수확물 꺼내기', { machine: name })
+                    : tr('{machine} · 내일 아침 수확', { machine: name })
                   : placedHere.kind === 'beehouse'
-                    ? `${name} · 꿀 모으는 중`
-                    : `${name} · 재료를 들고 사용`;
+                    ? tr('{machine} · 꿀 모으는 중', { machine: name })
+                    : tr('{machine} · 재료를 들고 사용', { machine: name });
         lx = tx * TILE + 8 - cx;
         ly = ty * TILE - 22 - cy;
       } else if (nodeHere) {
-        label = `${NODE_NAME[nodeHere as keyof typeof NODE_NAME]} · 곡괭이로 캐기`;
+        label = tr('{node} · 곡괭이로 캐기', { node: NODE_NAME[nodeHere as keyof typeof NODE_NAME] });
         lx = tx * TILE + 8 - cx;
         ly = ty * TILE - 8 - cy;
       } else if (forageHere) {
-        label = `${getItem(forageHere).name} 줍기`;
+        label = tr('{item} 줍기', { item: getItem(forageHere).name });
         lx = tx * TILE + 8 - cx;
         ly = ty * TILE - 6 - cy;
       } else if (cand && !(cand.kind === 'greenhouse' && world.state.greenhouse)) {
-        label = cand.kind === 'ship' ? (self.carrying.length ? `상자 ${self.carrying.length}개 싣기` : world.shipPresent ? '화물선 (상자를 들고 오세요)' : '배는 내일 아침에') : INTERACT_LABEL[cand.kind];
+        label = cand.kind === 'ship' ? (self.carrying.length ? tr('상자 {n}개 싣기', { n: self.carrying.length }) : world.shipPresent ? '화물선 (상자를 들고 오세요)' : '배는 내일 아침에') : INTERACT_LABEL[cand.kind];
         lx = cand.x * TILE + 8 - cx;
         ly = cand.y * TILE - 6 - cy;
         if (cand.kind === 'seedShop' || cand.kind === 'toolShop' || cand.kind === 'bed') ly = cand.y * TILE - 26 - cy;
       } else if (ready) {
-        label = `${findCrop(soil!.crop!.id)?.name} 수확`;
+        label = tr('{crop} 수확', { crop: findCrop(soil!.crop!.id)?.name ?? '' });
         lx = tx * TILE + 8 - cx;
         ly = ty * TILE - 18 - cy;
       }
@@ -924,7 +934,7 @@ export class GameScene implements Scene {
     this.hud.drawBanner(ui, vw, vh);
     if (this.saveShown > 0) this.hud.saveBadge(ui, vw, vh, this.saveShown, this.time);
     if (this.panel) this.panel.draw(ui, vw, vh);
-    else drawText(ctx, 'E 가방 · Tab 일지 · M 지도 · Esc 메뉴', 6, vh - 12, { font: 'small', color: P.paperLight, outline: P.ink });
+    else if (settings.hints) drawText(ctx, keyHints(), 6, vh - 12, { font: 'small', color: P.paperLight, outline: P.ink });
   }
 
   /** Underground: the floor, pickups, the target bracket and ladder / rock hints, then the HUD. */
@@ -935,7 +945,7 @@ export class GameScene implements Scene {
     this.mine.render(ctx, vw, vh, input);
     const cx = Math.round(this.mine.camX);
     const cy = Math.round(this.mine.camY);
-    for (const o of world.others.values()) if (o.floor === this.floor) drawText(ctx, o.name, Math.round(o.rx - cx), Math.round(o.ry - 44 - cy), { font: 'small', color: P.paperLight, outline: P.ink, align: 'center' });
+    for (const o of world.others.values()) if (o.floor === this.floor) drawText(ctx, o.name, Math.round(o.rx - cx), Math.round(o.ry - 44 - cy), { font: 'small', color: P.paperLight, outline: P.ink, align: 'center', raw: true });
     this.drawPickups(ctx, cx, cy);
     if (!this.panel) {
       const held = self.inv[self.sel];
@@ -948,9 +958,9 @@ export class GameScene implements Scene {
       const f = mineFloor(world.state.seed, this.floor);
       const rock = input.rocks[ty * f.w + tx];
       const cand = this.mineCandidate();
-      if (rock) this.whisper(ctx, `${NODE_NAME[rock as keyof typeof NODE_NAME]} · 곡괭이로 캐기`, tx * TILE + 8 - cx, ty * TILE - 8 - cy);
+      if (rock) this.whisper(ctx, tr('{node} · 곡괭이로 캐기', { node: NODE_NAME[rock as keyof typeof NODE_NAME] }), tx * TILE + 8 - cx, ty * TILE - 8 - cy);
       else if (cand?.kind === 'up') this.whisper(ctx, '사다리 타고 지상으로', cand.x * TILE + 8 - cx, cand.y * TILE - 6 - cy);
-      else if (cand?.kind === 'down') this.whisper(ctx, this.floor >= MINE_DEPTH ? '가장 깊은 곳이에요' : `${this.floor + 1}층으로 내려가기`, cand.x * TILE + 8 - cx, cand.y * TILE - 6 - cy);
+      else if (cand?.kind === 'down') this.whisper(ctx, this.floor >= MINE_DEPTH ? '가장 깊은 곳이에요' : tr('{n}층으로 내려가기', { n: this.floor + 1 }), cand.x * TILE + 8 - cx, cand.y * TILE - 6 - cy);
     }
     this.drawHud(ctx, vw, vh, input.minute);
   }
@@ -984,14 +994,20 @@ export class GameScene implements Scene {
     else if (isReady(crop)) lines.push({ text: '수확할 수 있어요!', font: 'small', color: P.tealDark });
     else {
       const left = Math.max(0, Math.ceil(def.growDays - crop.growth));
-      lines.push({ text: `수확까지 약 ${left}일`, font: 'small' });
+      lines.push({ text: tr('수확까지 약 {n}일', { n: left }), font: 'small' });
     }
     if (!crop.dead) {
       const thirsty = soil.dayMax < [0, 25, 45, 65][def.water];
       lines.push({ text: thirsty ? '목말라요 — 물을 주세요' : '물 충분', font: 'small', color: thirsty ? P.coralDark : P.inkSoft });
       if (crop.soggy > 0) lines.push({ text: '비를 많이 맞았어요', font: 'small', color: P.coralDark });
-      if (crop.stress > 1) lines.push({ text: `스트레스 ${crop.stress.toFixed(1)}`, font: 'small', color: P.brassDark });
+      if (crop.stress > 1) lines.push({ text: tr('스트레스 {n}', { n: crop.stress.toFixed(1) }), font: 'small', color: P.brassDark });
     }
     this.game.ui.tooltip(lines, x + 12, y + 12);
   }
+}
+
+/** "E Bag · Tab Journal · M Map · Esc Menu", with the player's own keys. */
+function keyHints(): string {
+  const k = (a: 'inventory' | 'journal' | 'map' | 'cancel') => keyName(settings.keys[a][0] ?? '');
+  return tr('{bag} 가방 · {journal} 일지 · {map} 지도 · {menu} 메뉴', { bag: k('inventory'), journal: k('journal'), map: k('map'), menu: k('cancel') });
 }

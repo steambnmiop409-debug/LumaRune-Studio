@@ -19,6 +19,8 @@ export function slotInfo(slot: number, file: SaveFile | null): SaveSlotInfo | nu
     day: file.state.clock.day,
     gold: file.state.gold,
     savedAt: file.savedAt,
+    look: host?.look,
+    lifetime: file.state.lifetimeEarnings,
   };
 }
 

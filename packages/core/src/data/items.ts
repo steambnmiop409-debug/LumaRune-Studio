@@ -1,3 +1,4 @@
+import { L } from '../i18n';
 import { CROPS, type CropDef } from './crops';
 
 export type ItemKind = 'seed' | 'produce' | 'forage' | 'tool' | 'fertilizer' | 'tonic' | 'placeable' | 'crate' | 'upgrade' | 'material' | 'gem' | 'artisan';
@@ -164,7 +165,7 @@ function seedItem(c: CropDef): ItemDef {
   const sapling = c.form === 'tree';
   return {
     id: `seed.${c.id}`,
-    name: sapling ? `${c.name} 묘목` : `${c.name} 씨앗`,
+    name: L(sapling ? '{crop} 묘목' : '{crop} 씨앗', { crop: c.name }),
     nameEn: sapling ? `${c.nameEn} Sapling` : `${c.nameEn} Seeds`,
     kind: 'seed',
     cropId: c.id,
@@ -204,19 +205,26 @@ export function cargoItemId(cargoId: string): string {
 
 export type ArtisanType = 'jam' | 'pickle' | 'tea' | 'wine' | 'juice' | 'honey';
 
-const ARTISAN: Record<ArtisanType, { suffix: string; en: string; value: (base: number) => number; desc: string }> = {
-  jam: { suffix: '잼', en: 'Jam', value: (b) => Math.round(b * 2 + 40), desc: '보존 항아리에서 졸인 달콤한 잼.' },
-  pickle: { suffix: '절임', en: 'Pickles', value: (b) => Math.round(b * 2 + 30), desc: '보존 항아리에서 새콤하게 익힌 절임.' },
-  tea: { suffix: '차', en: 'Tea', value: (b) => Math.round(b * 2.5), desc: '말려서 우린 향긋한 차.' },
-  wine: { suffix: '과일주', en: 'Wine', value: (b) => Math.round(b * 3), desc: '술통에서 천천히 익은 과일주.' },
-  juice: { suffix: '주스', en: 'Juice', value: (b) => Math.round(b * 2.25), desc: '술통에서 짜낸 신선한 주스.' },
-  honey: { suffix: '꿀', en: 'Honey', value: (b) => Math.round(90 + b * 2), desc: '벌통에서 모은 꿀. 꽃에 따라 향과 값이 다르다.' },
+/** `name` is a template: {src} is what went in. */
+const ARTISAN: Record<ArtisanType, { name: string; en: string; value: (base: number) => number; desc: string }> = {
+  jam: { name: '{src} 잼', en: 'Jam', value: (b) => Math.round(b * 2 + 40), desc: '보존 항아리에서 졸인 달콤한 잼.' },
+  pickle: { name: '{src} 절임', en: 'Pickles', value: (b) => Math.round(b * 2 + 30), desc: '보존 항아리에서 새콤하게 익힌 절임.' },
+  tea: { name: '{src} 차', en: 'Tea', value: (b) => Math.round(b * 2.5), desc: '말려서 우린 향긋한 차.' },
+  wine: { name: '{src} 과일주', en: 'Wine', value: (b) => Math.round(b * 3), desc: '술통에서 천천히 익은 과일주.' },
+  juice: { name: '{src} 주스', en: 'Juice', value: (b) => Math.round(b * 2.25), desc: '술통에서 짜낸 신선한 주스.' },
+  honey: { name: '{src} 꿀', en: 'Honey', value: (b) => Math.round(90 + b * 2), desc: '벌통에서 모은 꿀. 꽃에 따라 향과 값이 다르다.' },
 };
 
 /** Base value of a source item (a crop's ★1 price, or a forage item's price). */
 export function sourceValue(sourceId: string): number {
   if (sourceId.startsWith('crop.')) return CROPS.find((c) => `crop.${c.id}` === sourceId)?.sellPrice ?? 0;
   return ITEM_BY_ID.get(sourceId)?.price ?? 0;
+}
+
+/** Orchard fruit goes into jars as plain fruit: 과수원 사과 → 사과 잼. */
+const BARE: Record<string, string> = { 'forage.apple': '사과', 'forage.peach': '복숭아', 'forage.pear': '배', 'forage.plum': '자두' };
+export function bareName(id: string): string {
+  return BARE[id] ?? ITEM_BY_ID.get(id)?.name ?? id;
 }
 
 export function artisanId(type: ArtisanType, sourceId: string | null): string {
@@ -237,8 +245,7 @@ function makeArtisan(id: string): ItemDef | undefined {
   if (!a.source) return { id, name: '야생화 꿀', nameEn: 'Wildflower Honey', kind: 'artisan', price: def.value(0), maxStack: 99, desc: def.desc };
   const src = ITEM_BY_ID.get(a.source);
   if (!src) return undefined;
-  const base = src.name.replace(/^과수원 /, '');
-  return { id, name: `${base} ${def.suffix}`, nameEn: `${src.nameEn.replace(/^Orchard /, '')} ${def.en}`, kind: 'artisan', price: def.value(sourceValue(a.source)), maxStack: 99, desc: def.desc };
+  return { id, name: L(def.name, { src: bareName(a.source) }), nameEn: `${src.nameEn.replace(/^Orchard /, '')} ${def.en}`, kind: 'artisan', price: def.value(sourceValue(a.source)), maxStack: 99, desc: def.desc };
 }
 
 const ITEM_BY_ID = new Map(ITEMS.map((i) => [i.id, i]));

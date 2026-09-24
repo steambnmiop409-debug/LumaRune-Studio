@@ -1,3 +1,4 @@
+import { L } from '../i18n';
 import { getCrop } from '../data/crops';
 import { CAN_CAPACITY, FERTILIZER_EFFECT, getItem } from '../data/items';
 import { SHOPS, TOOL_SHOP_STOCK, seedShopStock, type ShopId } from '../data/shops';
@@ -112,7 +113,7 @@ export function useItem(ctx: SimContext, p: PlayerState, slot: number, x: number
   // Quarry outcrops need the pickaxe.
   const node = state.nodes[key];
   if (node) {
-    if (def.tool !== 'pick') return def.kind === 'tool' ? `${NODE_NAME[node]}은(는) 곡괭이로 깰 수 있어요.` : null;
+    if (def.tool !== 'pick') return def.kind === 'tool' ? L('{node}은(는) 곡괭이로 깰 수 있어요.', { node: NODE_NAME[node] }) : null;
     if (!spendStamina(p, 4)) return '너무 지쳤어요. 오늘은 쉬어야 해요.';
     delete state.nodes[key];
     giveAll(ctx, p, nodeDrops(node, ctx.rng), x, y);
@@ -135,13 +136,13 @@ export function useItem(ctx: SimContext, p: PlayerState, slot: number, x: number
       const found = weedFind(state, ctx.rng);
       if (found && canFit(p.inv, found, 1)) {
         addItem(p.inv, found, 1);
-        ctx.emit({ t: 'toast', text: `잡초 속에서 ${getItem(found).name}을(를) 찾았어요!`, tone: 'good' }, p.id);
+        ctx.emit({ t: 'toast', text: L('잡초 속에서 {item}을(를) 찾았어요!', { item: getItem(found).name }), tone: 'good' }, p.id);
       }
     }
     return null;
   }
-  if (debris && def.kind === 'tool' && def.tool === 'scythe') return `${DEBRIS_NAME[debris]}는 괭이로 치워야 해요.`;
-  if (debris && (def.kind === 'seed' || def.kind === 'placeable')) return `먼저 ${DEBRIS_NAME[debris]}를 치워 주세요.`;
+  if (debris && def.kind === 'tool' && def.tool === 'scythe') return L('{debris}는 괭이로 치워야 해요.', { debris: DEBRIS_NAME[debris] });
+  if (debris && (def.kind === 'seed' || def.kind === 'placeable')) return L('먼저 {debris}를 치워 주세요.', { debris: DEBRIS_NAME[debris] });
 
   switch (def.kind) {
     case 'tool': {
@@ -260,7 +261,7 @@ export function harvest(ctx: SimContext, p: PlayerState, x: number, y: number): 
   addItem(p.inv, got.id, qty, q);
   const isNew = !state.discovered.includes(def.id);
   applyHarvest(state, key);
-  if (isNew) ctx.emit({ t: 'toast', text: `도감에 새 작물이 기록됐어요: ${def.name}`, tone: 'good' }, p.id);
+  if (isNew) ctx.emit({ t: 'toast', text: L('도감에 새 작물이 기록됐어요: {crop}', { crop: def.name }), tone: 'good' }, p.id);
   ctx.touchSoil(key);
   ctx.touchPlayer(p.id);
   ctx.emit({ t: 'harvest', x, y, cropId: def.id, q: q ?? 1, qty, by: p.id }, 'all');
@@ -294,7 +295,7 @@ export function interact(ctx: SimContext, p: PlayerState, x: number, y: number):
         const def = SHOPS[kind];
         if (!shopIsOpen(state, kind)) {
           const closedToday = weekdayOf(state.clock.day) === def.closedWeekday;
-          return closedToday ? `${def.name}은(는) 오늘 쉬는 날이에요.` : `${def.name} 영업시간은 09:00~18:00이에요.`;
+          return closedToday ? L('{shop}은(는) 오늘 쉬는 날이에요.', { shop: def.name }) : L('{shop} 영업시간은 09:00~18:00이에요.', { shop: def.name });
         }
         ctx.emit({ t: 'openShop', shop: kind, stock: shopStock(state, kind) }, p.id);
         return null;
@@ -306,7 +307,7 @@ export function interact(ctx: SimContext, p: PlayerState, x: number, y: number):
       case 'ship':
         return loadShip(ctx, p);
       case 'bed':
-        if (state.clock.minute < SLEEP_FROM) return `아직 잠들 시간이 아니에요. ${Math.floor(SLEEP_FROM / 60)}:00부터 잘 수 있어요.`;
+        if (state.clock.minute < SLEEP_FROM) return L('아직 잠들 시간이 아니에요. {h}:00부터 잘 수 있어요.', { h: String(Math.floor(SLEEP_FROM / 60)) });
         ctx.emit({ t: 'sleepPrompt' }, p.id);
         return null;
       case 'board':
@@ -363,7 +364,7 @@ export function buy(ctx: SimContext, p: PlayerState, shop: ShopId, itemId: strin
   const def = getItem(itemId);
   if (def.kind === 'upgrade' || def.kind === 'tool') qty = 1;
   const cost = def.price * qty;
-  if (state.gold < cost) return `돈이 부족해요. (${cost.toLocaleString()}G 필요)`;
+  if (state.gold < cost) return L('돈이 부족해요. ({gold}G 필요)', { gold: cost });
   if (itemId === 'upgrade.cart') {
     if (p.cart) return '이미 손수레가 있어요.';
     p.cart = true;

@@ -1,3 +1,4 @@
+import { L } from '../i18n';
 import { getCrop, type CropDef } from '../data/crops';
 import { getItem } from '../data/items';
 import { rollQuality } from '../farming/growth';
@@ -66,8 +67,8 @@ export function repairGreenhouse(ctx: SimContext, p: PlayerState): string | null
   if (state.greenhouse) return null;
   const door = map.interactables.find((i) => i.kind === 'greenhouse');
   if (!door || Math.hypot(door.x * 16 + 8 - p.x, door.y * 16 + 8 - (p.y - 4)) > 64) return '온실 앞에서 고칠 수 있어요.';
-  if (state.gold < GREENHOUSE_COST.gold) return `돈이 부족해요. (${GREENHOUSE_COST.gold.toLocaleString()}G 필요)`;
-  for (const [id, n] of GREENHOUSE_COST.items) if (countItem(p.inv, id) < n) return `${getItem(id).name}이(가) ${n}개 필요해요.`;
+  if (state.gold < GREENHOUSE_COST.gold) return L('돈이 부족해요. ({gold}G 필요)', { gold: GREENHOUSE_COST.gold });
+  for (const [id, n] of GREENHOUSE_COST.items) if (countItem(p.inv, id) < n) return L('{item}이(가) {n}개 필요해요.', { item: getItem(id).name, n });
   state.gold -= GREENHOUSE_COST.gold;
   for (const [id, n] of GREENHOUSE_COST.items) removeItem(p.inv, id, n);
   state.greenhouse = true;
@@ -143,6 +144,6 @@ export function harvestGiant(ctx: SimContext, p: PlayerState, key: number): stri
   const ax = anchor % map.w;
   const ay = Math.floor(anchor / map.w);
   ctx.emit({ t: 'harvest', x: ax + 1, y: ay + 1, cropId: def.id, q, qty, by: p.id, giant: true }, 'all');
-  ctx.emit({ t: 'toast', text: `거대 ${def.name}를 수확했어요! ×${qty}`, tone: 'good' }, p.id);
+  ctx.emit({ t: 'toast', text: L('거대 {crop}를 수확했어요! ×{n}', { crop: def.name, n: qty }), tone: 'good' }, p.id);
   return null;
 }

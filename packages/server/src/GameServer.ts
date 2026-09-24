@@ -130,6 +130,14 @@ export class GameServer {
         session.link.send({ t: 'saves', slots });
         return;
       }
+      if (msg.t === 'deleteSave') {
+        const slot = msg.slot | 0;
+        if (slot >= 0 && slot < SAVE_SLOTS && !(this.state && this.slot === slot)) await this.opts.store.remove(slot);
+        const slots = [];
+        for (let i = 0; i < SAVE_SLOTS; i++) slots.push(slotInfo(i, await this.opts.store.load(i)));
+        session.link.send({ t: 'saves', slots });
+        return;
+      }
       if (msg.t === 'join') {
         await this.join(session, msg);
         return;

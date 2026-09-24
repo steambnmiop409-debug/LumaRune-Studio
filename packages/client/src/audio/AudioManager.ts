@@ -1,3 +1,5 @@
+import { settings, updateSettings, type Settings } from '../settings';
+
 /**
  * Plays the game's recorded sound assets (see tools/audio for how each file is produced).
  * Sounds are real audio files in /audio — nothing is synthesized at runtime.
@@ -78,15 +80,21 @@ export class AudioManager {
   private wantedTrack: Track | null = null;
   /** Where each song was when it last faded out, so coming back to it picks up the tune. */
   private resumeAt = new Map<Track, number>();
-  volumes = { master: 0.8, music: 0.55, sfx: 0.8, amb: 0.7 };
+  /** Silenced while the window is in the background (a setting). */
+  private muted = false;
 
   constructor(private base = './audio/') {
-    try {
-      const raw = localStorage.getItem('lumina:volumes');
-      if (raw) Object.assign(this.volumes, JSON.parse(raw));
-    } catch {
-      /* storage unavailable */
-    }
+    const focus = () => {
+      this.muted = settings.muteUnfocused && (document.hidden || !document.hasFocus());
+      this.applyVolumes(false);
+    };
+    window.addEventListener('blur', focus);
+    window.addEventListener('focus', focus);
+    document.addEventListener('visibilitychange', focus);
+  }
+
+  get volumes(): Settings['volumes'] {
+    return settings.volumes;
   }
 
   /** Must be called from a user gesture (browser autoplay policy). */
@@ -103,7 +111,7 @@ export class AudioManager {
     this.sfxBus = this.bus(this.master);
     this.musicBus = this.bus(this.master);
     this.ambBus = this.bus(this.master);
-    this.applyVolumes();
+    this.applyVolumes(false);
     if (this.wantedTrack) this.playMusic(this.wantedTrack);
   }
 
@@ -113,17 +121,14 @@ export class AudioManager {
     return g;
   }
 
-  applyVolumes(): void {
+  /** Pushes the volume settings to the mixer (and saves them unless told not to). */
+  applyVolumes(save = true): void {
+    if (save) updateSettings({ volumes: settings.volumes });
     if (!this.ctx) return;
-    this.master.gain.value = this.volumes.master;
+    this.master.gain.value = this.muted ? 0 : this.volumes.master;
     this.sfxBus.gain.value = this.volumes.sfx;
     this.musicBus.gain.value = this.volumes.music;
     this.ambBus.gain.value = this.volumes.amb;
-    try {
-      localStorage.setItem('lumina:volumes', JSON.stringify(this.volumes));
-    } catch {
-      /* ignore */
-    }
   }
 
   private load(path: string): Promise<AudioBuffer | null> {

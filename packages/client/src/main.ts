@@ -1,6 +1,7 @@
 import { Game } from './engine/Game';
-import { loadFonts } from './engine/text';
+import { loadCjkFonts, loadFonts } from './engine/text';
 import { host } from './platform/host';
+import { loadSettings, onSettings, settings } from './settings';
 import { TitleScene } from './scenes/TitleScene';
 
 async function boot(): Promise<void> {
@@ -9,7 +10,12 @@ async function boot(): Promise<void> {
     await sheet();
     return;
   }
-  await loadFonts();
+  await Promise.all([loadFonts(), loadSettings()]);
+  if (settings.lang === 'ja') await loadCjkFonts();
+  onSettings((s) => {
+    if (s.lang === 'ja') void loadCjkFonts();
+  });
+  if (host && settings.fullscreen) void host.setFullscreen(true);
   const game = new Game(document.getElementById('screen') as HTMLCanvasElement);
   document.getElementById('boot')?.remove();
   game.setScene(new TitleScene());

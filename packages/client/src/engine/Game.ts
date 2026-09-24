@@ -1,5 +1,6 @@
 import { Sprites } from '../art/Sprites';
 import { AudioManager } from '../audio/AudioManager';
+import { settings } from '../settings';
 import { UI } from '../ui/kit';
 import { Input } from './Input';
 import type { Scene } from './Scene';
@@ -33,7 +34,13 @@ export class Game {
 
   start(): void {
     const frame = (now: number) => {
+      // Frame-rate cap: skip display refreshes that come too soon (a little slack for timer jitter).
+      if (settings.fpsCap && now - this.last < 1000 / settings.fpsCap - 2) {
+        requestAnimationFrame(frame);
+        return;
+      }
       const dt = Math.min(0.05, (now - this.last) / 1000);
+      this.screen.beginFrame();
       this.last = now;
       this.time += dt;
       const ctx = this.screen.ctx;
@@ -44,7 +51,11 @@ export class Game {
         this.scene.render(ctx);
       }
       // Pointer.
-      if (performance.now() - this.input.mouseMovedAt < 4000) ctx.drawImage(Sprites.pointer(), this.input.mouseX, this.input.mouseY);
+      if (performance.now() - this.input.mouseMovedAt < 4000) {
+        const p = Sprites.pointer();
+        const k = settings.bigCursor ? 2 : 1;
+        ctx.drawImage(p, this.input.mouseX, this.input.mouseY, p.width * k, p.height * k);
+      }
       this.screen.present();
       this.input.endFrame();
       requestAnimationFrame(frame);

@@ -1,3 +1,4 @@
+import { L } from '../i18n';
 import { RECIPE_BY_ID } from '../data/crafting';
 import { getCrop } from '../data/crops';
 import { artisanId, getItem, type ArtisanType, type PlaceableKind } from '../data/items';
@@ -107,7 +108,7 @@ export function batchFor(kind: PlaceableKind, stack: ItemStack, rng: Rng): Batch
         type = 'wine';
         minutes = 5760;
       } else if (g === 'veg') type = 'juice';
-      if (!type) return `${def.name}(으)로는 만들 수 있는 게 없어요.`;
+      if (!type) return L('{item}(으)로는 만들 수 있는 게 없어요.', { item: def.name });
       return { need: 1, out: [{ id: artisanId(type, id), qty: 1 }], minutes };
     }
     case 'seedmaker':
@@ -123,11 +124,11 @@ export function loadMachine(ctx: SimContext, p: PlayerState, obj: PlacedObject, 
   const stack = p.inv[slot];
   if (!stack) return null;
   const name = MACHINE_NAME[obj.kind] ?? '장비';
-  if (obj.work) return obj.work.ready <= nowAbs(ctx.state) ? '먼저 결과물을 꺼내 주세요.' : `${name}이(가) 아직 작업 중이에요.`;
+  if (obj.work) return obj.work.ready <= nowAbs(ctx.state) ? '먼저 결과물을 꺼내 주세요.' : L('{machine}이(가) 아직 작업 중이에요.', { machine: name });
   const b = batchFor(obj.kind, stack, ctx.rng);
   if (typeof b === 'string') return b;
-  if (stack.qty < b.need) return `${getItem(stack.id).name}이(가) ${b.need}개 필요해요.`;
-  if (b.extra && countItem(p.inv, b.extra[0]) < b.extra[1]) return `${getItem(b.extra[0]).name}이(가) ${b.extra[1]}개 필요해요.`;
+  if (stack.qty < b.need) return L('{item}이(가) {n}개 필요해요.', { item: getItem(stack.id).name, n: b.need });
+  if (b.extra && countItem(p.inv, b.extra[0]) < b.extra[1]) return L('{item}이(가) {n}개 필요해요.', { item: getItem(b.extra[0]).name, n: b.extra[1] });
   takeFromSlot(p.inv, slot, b.need);
   if (b.extra) removeItem(p.inv, b.extra[0], b.extra[1]);
   obj.work = { out: b.out, ready: nowAbs(ctx.state) + b.minutes };
@@ -146,8 +147,8 @@ export function collectMachine(ctx: SimContext, p: PlayerState, obj: PlacedObjec
   else if (obj.work && obj.work.ready <= now) source.push(...obj.work.out);
   if (!source.length) {
     if (obj.kind === 'harvester') return '아직 수확한 작물이 없어요. 매일 아침 주변 5×5를 수확해요.';
-    if (obj.kind === 'beehouse') return `꿀이 차오르는 중이에요. (${Math.max(1, 3 - (obj.days ?? 0))}일 남음)`;
-    if (obj.work) return `${name} 작업 중 · ${timeLeft(obj.work.ready - now)} 남음`;
+    if (obj.kind === 'beehouse') return L('꿀이 차오르는 중이에요. ({n}일 남음)', { n: Math.max(1, 3 - (obj.days ?? 0)) });
+    if (obj.work) return L('{machine} 작업 중 · {left} 남음', { machine: name, left: timeLeft(obj.work.ready - now) });
     return idleHint(obj.kind);
   }
   const left: ItemStack[] = [];
@@ -172,9 +173,9 @@ export function collectMachine(ctx: SimContext, p: PlayerState, obj: PlacedObjec
 }
 
 export function timeLeft(min: number): string {
-  if (min >= 1440) return `${Math.ceil(min / 1440)}일`;
-  if (min >= 60) return `${Math.ceil(min / 60)}시간`;
-  return `${Math.max(1, Math.ceil(min))}분`;
+  if (min >= 1440) return L('{n}일', { n: Math.ceil(min / 1440) });
+  if (min >= 60) return L('{n}시간', { n: Math.ceil(min / 60) });
+  return L('{n}분', { n: Math.max(1, Math.ceil(min)) });
 }
 
 export function idleHint(kind: PlaceableKind): string {
@@ -278,7 +279,7 @@ export function craft(ctx: SimContext, p: PlayerState, recipeId: string): string
   if (!r) return null;
   const bench = ctx.map.interactables.find((i) => i.kind === 'workbench');
   if (bench && Math.hypot(bench.x * 16 + 8 - p.x, bench.y * 16 + 8 - p.y) > 64) return '작업대 앞에서 만들 수 있어요.';
-  for (const [id, n] of r.needs) if (countItem(p.inv, id) < n) return `${getItem(id).name}이(가) 부족해요. (${countItem(p.inv, id)}/${n})`;
+  for (const [id, n] of r.needs) if (countItem(p.inv, id) < n) return L('{item}이(가) 부족해요. ({have}/{n})', { item: getItem(id).name, have: countItem(p.inv, id), n });
   if (!canFit(p.inv, r.out, r.qty)) return '가방에 자리가 없어요.';
   for (const [id, n] of r.needs) removeItem(p.inv, id, n);
   addItem(p.inv, r.out, r.qty);

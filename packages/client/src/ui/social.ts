@@ -1,5 +1,6 @@
-import { MAX_HEARTS, NPCS, NPC_BY_ID, POINTS_PER_HEART, countItem, getItem, type ClientMessage } from '@lumina/core';
+import { MAX_HEARTS, NPCS, NPC_BY_ID, POINTS_PER_HEART, countItem, getItem, tr, type ClientMessage } from '@lumina/core';
 import { Sprites } from '../art/Sprites';
+import { settings } from '../settings';
 import { P } from '../art/palette';
 import { drawText, measure, wrap } from '../engine/text';
 import type { ClientWorld } from '../net/ClientWorld';
@@ -71,7 +72,7 @@ export class DialoguePanel implements Panel {
     const pts = this.world.state.npcs[this.npc]?.points ?? 0;
     heartsRow(c, x + W - 90, y + 9, pts);
     if (!this.lines.length) this.lines = wrap(this.text, W - 70, 'body');
-    let shown = Math.floor(this.t * 40);
+    let shown = Math.floor(this.t * [18, 40, 90, 1e6][settings.textSpeed]);
     let yy = y + 24;
     for (const line of this.lines) {
       const part = [...line].slice(0, Math.max(0, shown)).join('');
@@ -122,12 +123,12 @@ export class BoardPanel implements Panel {
       const npc = NPC_BY_ID.get(req.npc)!;
       const item = getItem(req.item);
       icon2x(c, Sprites.icon(req.item), x + 18, y + 40);
-      drawText(c, `${npc.name}의 부탁`, x + 58, y + 36, { font: 'bold' });
-      drawText(c, `${item.name} ${req.qty}개를 가져다 주세요.`, x + 58, y + 50, { font: 'small' });
+      drawText(c, tr('{npc}의 부탁', { npc: npc.name }), x + 58, y + 36, { font: 'bold' });
+      drawText(c, tr('{item} {n}개를 가져다 주세요.', { item: item.name, n: req.qty }), x + 58, y + 50, { font: 'small' });
       const have = countItem(this.world.self.inv, req.item);
-      drawText(c, `가진 수량 ${Math.min(have, req.qty)}/${req.qty}`, x + 58, y + 63, { font: 'small', color: have >= req.qty ? P.tealDark : P.coralDark });
+      drawText(c, tr('가진 수량 {n}/{max}', { n: Math.min(have, req.qty), max: req.qty }), x + 58, y + 63, { font: 'small', color: have >= req.qty ? P.tealDark : P.coralDark });
       c.drawImage(Sprites.coin(), x + 58, y + 78);
-      const rw = drawText(c, `보상 ${formatGold(req.reward)} · 우정`, x + 70, y + 77, { font: 'small' });
+      const rw = drawText(c, tr('보상 {gold} · 우정', { gold: formatGold(req.reward) }), x + 70, y + 77, { font: 'small' });
       heart(c, x + 74 + rw, y + 79, 1);
       if (req.done) drawText(c, '완료!', x + W - 24, y + 74, { font: 'bold', color: P.tealDark, align: 'right' });
       else if (ui.button({ x: x + W - 96, y: y + 70, w: 80, h: 22 }, '전달하기', { tone: 'brass', disabled: have < req.qty })) {
@@ -150,7 +151,7 @@ export class BoardPanel implements Panel {
       heartsRow(c, x + W - 92, ry + 4, f?.points ?? 0);
       if (talked || gifted) drawText(c, gifted ? '선물함' : '대화함', x + W - 98, ry + 3, { font: 'tiny', color: P.tealDark, align: 'right' });
     });
-    const hint = wrap('주민에게 말을 걸면(E) 친해지고, 작물·채집물을 들고 사용하면 선물할 수 있어요. 선물은 하루 한 번!', W - 24, 'tiny');
+    const hint = wrap('주민에게 말을 걸면(F) 친해지고, 작물·채집물을 들고 사용하면 선물할 수 있어요. 선물은 하루 한 번!', W - 24, 'tiny');
     hint.forEach((l, i) => drawText(c, l, x + 12, y + H - 8 - hint.length * 9 + i * 9, { font: 'tiny', color: P.inkSoft }));
     const r = { x: x + W - 18, y: y + 5, w: 13, h: 13 };
     c.fillStyle = P.ink;

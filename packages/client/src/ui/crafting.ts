@@ -1,4 +1,4 @@
-import { CHEST_SLOTS, INVENTORY_SIZE, RECIPES, countItem, getItem, type ClientMessage, type ItemStack } from '@lumina/core';
+import { CHEST_SLOTS, INVENTORY_SIZE, RECIPES, countItem, getItem, tr, type ClientMessage, type ItemStack } from '@lumina/core';
 import { Sprites } from '../art/Sprites';
 import { P } from '../art/palette';
 import type { AudioManager } from '../audio/AudioManager';
@@ -82,7 +82,7 @@ export class CraftPanel implements Panel {
       }
       c.drawImage(Sprites.icon(r.out), lx + 3, ry - 1);
       const def = getItem(r.out);
-      drawText(c, r.qty > 1 ? `${def.name} ×${r.qty}` : def.name, lx + 22, ry + 2, { font: 'small', color: ok ? P.ink : P.inkSoft, maxWidth: 124 });
+      drawText(c, r.qty > 1 ? `${tr(def.name)} ×${r.qty}` : def.name, lx + 22, ry + 2, { font: 'small', color: ok ? P.ink : P.inkSoft, maxWidth: 124 });
       if (ok) drawText(c, '●', lx + 168, ry + 2, { font: 'tiny', color: P.tealDark, align: 'right' });
       if (ui.clicked(rect)) {
         this.sel = i;

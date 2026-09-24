@@ -1,33 +1,7 @@
+import { settings, type Action } from '../settings';
 import type { Screen } from './Screen';
 
-export type Action =
-  | 'up'
-  | 'down'
-  | 'left'
-  | 'right'
-  | 'use'
-  | 'interact'
-  | 'journal'
-  | 'inventory'
-  | 'map'
-  | 'cancel'
-  | 'confirm'
-  | 'run';
-
-const BINDINGS: Record<Action, string[]> = {
-  up: ['KeyW', 'ArrowUp'],
-  down: ['KeyS', 'ArrowDown'],
-  left: ['KeyA', 'ArrowLeft'],
-  right: ['KeyD', 'ArrowRight'],
-  use: ['Space', 'KeyC'],
-  interact: ['KeyF', 'KeyX'],
-  inventory: ['KeyE', 'KeyI'],
-  journal: ['Tab'],
-  map: ['KeyM'],
-  cancel: ['Escape'],
-  confirm: ['Enter'],
-  run: ['ShiftLeft', 'ShiftRight'],
-};
+export type { Action } from '../settings';
 
 /** Keyboard + mouse state, polled once per frame. Mouse is in logical pixels. */
 export class Input {
@@ -92,11 +66,17 @@ export class Input {
   }
 
   isDown(a: Action): boolean {
-    return BINDINGS[a].some((k) => this.down.has(k));
+    return settings.keys[a].some((k) => this.down.has(k));
   }
 
   wasPressed(a: Action): boolean {
-    return BINDINGS[a].some((k) => this.pressed.has(k));
+    return settings.keys[a].some((k) => this.pressed.has(k));
+  }
+
+  /** The first key pressed this frame (for rebinding controls). */
+  anyKeyPressed(): string | null {
+    for (const k of this.pressed) return k;
+    return null;
   }
 
   keyPressed(code: string): boolean {
