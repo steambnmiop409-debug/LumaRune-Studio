@@ -1,7 +1,6 @@
 import { hash2 } from '@lumina/core';
 import { Pix } from '../Pix';
 import { light, mix, shade } from '../palette';
-import { clump } from './shading';
 
 export type SeasonLook = 0 | 1 | 2 | 3;
 
@@ -12,38 +11,6 @@ export interface TreeSprite {
   /** Anchor: sprite x of the trunk centre, sprite y of the ground. */
   ax: number;
   ay: number;
-}
-
-function canopyPalette(base: string): string[] {
-  return [light(base, 2), light(base, 1), base, shade(base, 1), shade(base, 2)];
-}
-
-const OAK_LEAVES = ['#5ea24c', '#6aa84a', '#579c56', '#72ad48'];
-const AUTUMN = ['#e0923a', '#d0703a', '#e8b04a', '#c85a3a'];
-const BLOSSOM = ['#f0b0c4', '#f5c0cf', '#eaa3bb'];
-
-/** Paints a canopy made of overlapping blobs with clump shading. */
-export function canopy(p: Pix, blobs: Array<[number, number, number, number]>, base: string, seed: number, cell = 5, speckle?: string) {
-  const pal = canopyPalette(base);
-  const inside = (x: number, y: number) => blobs.some(([cx, cy, rx, ry]) => ((x + 0.5 - cx) / rx) ** 2 + ((y + 0.5 - cy) / ry) ** 2 <= 1);
-  let minY = Infinity;
-  let maxY = -Infinity;
-  for (const [, cy, , ry] of blobs) {
-    minY = Math.min(minY, cy - ry);
-    maxY = Math.max(maxY, cy + ry);
-  }
-  for (let y = 0; y < p.h; y++)
-    for (let x = 0; x < p.w; x++) {
-      if (!inside(x, y)) continue;
-      // Global light: top-left bright, bottom dark.
-      const gy = (y - minY) / (maxY - minY);
-      let tone = 2 + clump(x, y, cell, seed) + (gy > 0.78 ? 1 : gy < 0.25 ? -1 : 0);
-      if (!inside(x, y + 1) || !inside(x + 1, y + 1)) tone = Math.max(tone, 3);
-      tone = Math.max(0, Math.min(4, tone));
-      let c = pal[tone];
-      if (speckle && tone <= 2 && hash2(x, y, seed + 9) < 0.06) c = speckle;
-      p.set(x, y, c);
-    }
 }
 
 export function trunk(p: Pix, cx: number, top: number, bottom: number, w: number, bark = '#8a5a3a') {
@@ -63,110 +30,6 @@ export function trunk(p: Pix, cx: number, top: number, bottom: number, w: number
       p.set(x, y, c);
     }
   }
-}
-
-export function oakTree(v: number, season: SeasonLook): TreeSprite {
-  const p = new Pix(34, 46);
-  const s = (v % 7) / 7;
-  const big = v % 3 === 0 ? 1 : 0;
-  trunk(p, 17, 28, 45, 5 + (v % 3), mix('#8a5a3a', '#6e4a3a', hash2(v, 2, 9)));
-  if (season === 3) {
-    // Bare winter branches.
-    const br = '#6e4a34';
-    p.line(17, 30, 9, 16, br);
-    p.line(17, 29, 25, 14, br);
-    p.line(16, 26, 16, 10, br);
-    p.line(12, 22, 7, 20, br);
-    p.line(22, 21, 28, 19, br);
-    p.line(16, 16, 12, 9, br);
-    p.line(17, 16, 21, 8, br);
-    p.outline(shade(br, 3));
-    return { img: p.toCanvas(), swayRows: 28, ax: 17, ay: 45 };
-  }
-  const base = mix(season === 2 ? AUTUMN[v % AUTUMN.length] : OAK_LEAVES[v % OAK_LEAVES.length], season === 2 ? '#c8503a' : '#3f7a5a', hash2(v, 5, 9) * 0.35);
-  const tint = season === 0 ? light(base, 1) : base;
-  // A canopy layout of its own: 4-7 overlapping masses placed by this tree's seed.
-  const R = (k: number) => hash2(v, k, 77);
-  const blobs: Array<[number, number, number, number]> = [[17, 17 - big, 12 + big + R(1) * 2, 10 + big + R(2) * 2]];
-  const extra = 3 + Math.floor(R(3) * 4);
-  for (let i = 0; i < extra; i++) {
-    const a = R(10 + i) * Math.PI * 2;
-    const d = 5 + R(20 + i) * 5;
-    blobs.push([17 + Math.cos(a) * d * 1.2, 15 + Math.sin(a) * d * 0.9 - 1, 4.5 + R(30 + i) * 3.5, 4 + R(40 + i) * 3]);
-  }
-  canopy(
-    p,
-    blobs,
-    tint,
-    v * 13,
-    5,
-    season === 0 && v % 2 === 0 ? '#fdf2c0' : undefined,
-  );
-  p.outline();
-  return { img: p.toCanvas(), swayRows: 28, ax: 17, ay: 45 };
-}
-
-export function blossomTree(v: number, season: SeasonLook): TreeSprite {
-  if (season !== 0) return oakTree(v + 1, season);
-  const p = new Pix(34, 44);
-  trunk(p, 17, 27, 43, 5, '#7a4a3a');
-  p.line(17, 28, 11, 20, '#7a4a3a');
-  p.line(17, 27, 23, 19, '#7a4a3a');
-  canopy(
-    p,
-    [
-      [17, 16, 14, 10],
-      [8, 21, 7, 6],
-      [26, 20, 7, 6],
-      [15, 8, 9, 7],
-      [22, 10, 6, 5],
-    ],
-    BLOSSOM[v % BLOSSOM.length],
-    v * 7 + 3,
-    4,
-    '#fff6f8',
-  );
-  p.outline(shade('#d98ba2', 2));
-  return { img: p.toCanvas(), swayRows: 27, ax: 17, ay: 43 };
-}
-
-export function pineTree(v: number, season: SeasonLook): TreeSprite {
-  const p = new Pix(26, 48);
-  trunk(p, 13, 38, 47, 4, '#7a4e36');
-  const base = v % 2 ? '#3f7a5a' : '#467f55';
-  const pal = canopyPalette(base);
-  const tiers = [
-    [4, 14, 8],
-    [11, 23, 10],
-    [18, 32, 12],
-    [25, 41, 13],
-  ];
-  for (const [top, bottom, half] of tiers) {
-    for (let y = top; y <= bottom; y++) {
-      const t = (y - top) / (bottom - top);
-      const hw = 1 + t * half;
-      for (let x = Math.floor(13 - hw); x <= Math.ceil(13 + hw - 1); x++) {
-        const rel = (x + 0.5 - 13) / hw;
-        // Jagged bottom edge.
-        if (y === bottom && (x & 1)) continue;
-        let tone = rel < -0.35 ? 1 : rel > 0.45 ? 3 : 2;
-        if (t < 0.25) tone = Math.max(0, tone - 1);
-        if (y >= bottom - 1) tone = Math.min(4, tone + 1);
-        if (hash2(x, y, v) < 0.08) tone = Math.min(4, tone + 1);
-        p.set(x, y, pal[tone]);
-      }
-    }
-  }
-  if (season === 3) {
-    // Snow on the tiers.
-    for (const [top, bottom, half] of tiers) {
-      const y = top + Math.floor((bottom - top) * 0.55);
-      const hw = 1 + ((y - top) / (bottom - top)) * half;
-      for (let x = Math.floor(13 - hw); x <= Math.ceil(13 + hw - 1); x++) if (hash2(x, y, 3) < 0.7) p.set(x, y, '#f4f8ff');
-    }
-  }
-  p.outline();
-  return { img: p.toCanvas(), swayRows: 36, ax: 13, ay: 47 };
 }
 
 export function palmTree(v: number): TreeSprite {
@@ -213,41 +76,49 @@ export function palmTree(v: number): TreeSprite {
   return { img: p.toCanvas(), swayRows: 26, ax: 18, ay: 47 };
 }
 
-export function bush(v: number, season: SeasonLook): HTMLCanvasElement {
-  const p = new Pix(18, 16);
-  const base = season === 2 ? '#b8883a' : ['#5a9a48', '#4f9050', '#62a04a'][v % 3];
-  canopy(
-    p,
-    [
-      [9, 9, 7.5, 6],
-      [5, 10, 4, 4],
-      [13, 10, 4, 4],
-      [9, 5, 5, 4],
-    ],
-    base,
-    v,
-    4,
-  );
-  if (v % 4 === 0 && season !== 3)
-    for (let i = 0; i < 5; i++) p.set(4 + Math.floor(hash2(v, i, 1) * 10), 5 + Math.floor(hash2(v, i, 2) * 7), i % 2 ? '#e05060' : '#f0e0ff');
-  p.outline();
-  return p.toCanvas();
-}
-
+/** A faceted boulder: flat-lit planes, a mossy crown on some, a crack on others. */
 export function rock(v: number): HTMLCanvasElement {
-  const p = new Pix(18, 14);
-  const base = '#a39d96';
-  const pal = [light(base, 2), light(base, 1), base, shade(base, 1), shade(base, 2)];
-  const w = 6 + (v % 3);
-  const h = 4.5 + (v % 2);
-  p.ellipse(9, 8, w, h, (nx, ny) => {
-    const l = -(nx * 0.6 + ny * 0.9);
-    const t = l > 0.45 ? 0 : l > 0.1 ? 1 : l > -0.35 ? 2 : l > -0.7 ? 3 : 4;
-    return pal[t];
-  });
-  if (v % 3 === 0) for (let x = 5; x < 12; x++) if (hash2(x, v, 3) < 0.6) p.set(x, 4 + Math.round(Math.abs(x - 9) * 0.3), '#6f9a52');
-  p.line(8, 7, 10, 9, pal[4]);
-  p.outline();
+  const p = new Pix(20, 16);
+  const base = mix('#aaa49c', '#b8b0a2', hash2(v, 1, 5));
+  const pal = [light(base, 2), light(base, 1), base, shade(base, 1), shade(base, 2), shade(base, 3)];
+  const w = 6.5 + (v % 3) * 0.8;
+  const h = 5 + (v % 2);
+  const cy = 15 - h;
+  const facet = (x: number, y: number) => {
+    // Voronoi facets, each with its own tilt.
+    let best = Infinity;
+    let id = 0;
+    for (let k = 0; k < 6; k++) {
+      const fx = 10 + (hash2(v, 10 + k, 5) - 0.5) * w * 1.6;
+      const fy = cy + (hash2(v, 20 + k, 5) - 0.5) * h * 1.6;
+      const d = Math.hypot(x + 0.5 - fx, (y + 0.5 - fy) * 1.3);
+      if (d < best) {
+        best = d;
+        id = k;
+      }
+    }
+    return id;
+  };
+  for (let y = 0; y < 16; y++)
+    for (let x = 0; x < 20; x++) {
+      const nx = (x + 0.5 - 10) / w;
+      const ny = (y + 0.5 - cy) / h;
+      const wob = (hash2(x >> 1, y >> 1, v) - 0.5) * 0.15;
+      if (nx * nx + ny * ny > 1 + wob || y > 14) continue;
+      const id = facet(x, y);
+      const lit = -(nx * 0.55 + ny * 0.85) + (hash2(v, 30 + id, 5) - 0.5) * 0.8;
+      let t = lit > 0.55 ? 0 : lit > 0.2 ? 1 : lit > -0.15 ? 2 : lit > -0.5 ? 3 : 4;
+      if (id !== facet(x + 1, y) || id !== facet(x, y + 1)) t = Math.min(5, t + 1);
+      p.set(x, y, pal[t]);
+    }
+  if (v % 3 === 0)
+    for (let x = 4; x < 16; x++) {
+      const top = Math.round(cy - h * Math.sqrt(Math.max(0, 1 - ((x + 0.5 - 10) / w) ** 2))) + 1;
+      if (hash2(x, v, 3) < 0.75) p.set(x, top, x < 10 ? '#8ac05a' : '#6a9a4a');
+      if (hash2(x, v, 4) < 0.35) p.set(x, top + 1, '#6a9a4a');
+    }
+  else if (v % 3 === 1) p.line(9, cy - 1, 11, cy + 3, pal[5]);
+  p.outline(shade(base, 4));
   return p.toCanvas();
 }
 

@@ -32,7 +32,7 @@ class Painter {
     this.n = new Pix(w, h);
   }
 
-  roof(x0: number, y0: number, w: number, h: number, color: string, style: 'tile' | 'slate' | 'thatch' = 'tile', inset = 5) {
+  roof(x0: number, y0: number, w: number, h: number, color: string, style: 'tile' | 'slate' | 'thatch' = 'tile', inset = 5, moss = false) {
     const p = this.p;
     const hi = light(color, 1);
     const hi2 = light(color, 2);
@@ -54,9 +54,15 @@ class Painter {
           c = hash2(x, y, 3) < 0.3 ? hi : hash2(x, y, 4) < 0.2 ? lo : color;
           if (ly === rowH - 1) c = lo;
         } else {
+          // Each tile: its own weathered tone, a glint on its upper left, a shadow line below.
+          const tileId = Math.floor((x - x0 + off) / 6);
+          const k = hash2(tileId, r, 17);
+          const base = k < 0.14 ? hi : k > 0.86 ? lo : color;
+          c = base;
           if (ly === rowH - 1) c = lo2;
-          else if (ly === 0) c = hi;
+          else if (ly === 0) c = lx === 1 || lx === 2 ? hi2 : hi;
           if (lx === 0 && ly !== rowH - 1) c = lo;
+          if (moss && ly !== rowH - 1 && hash2(tileId >> 1, r >> 1, 19) < 0.18 && hash2(x, y, 20) < 0.7) c = hash2(x, y, 21) < 0.5 ? '#7fa34e' : '#658a42';
         }
         // Side slopes darker/lighter for volume.
         if (x < x0 + ins + 2) c = hi;
@@ -93,16 +99,26 @@ class Painter {
         }
         p.set(x, y, c);
       }
-    // Shadow under the eave.
+    // Deep shadow under the eave, fading out.
     for (let x = x0; x < x0 + w; x++) {
-      p.set(x, y0, lo2);
-      p.set(x, y0 + 1, lo);
+      p.set(x, y0, shade(color, 3));
+      p.set(x, y0 + 1, lo2);
+      p.set(x, y0 + 2, lo);
+      if ((x + y0) & 1) p.set(x, y0 + 3, lo);
     }
-    // Foundation.
-    for (let x = x0; x < x0 + w; x++) {
-      p.set(x, y0 + h - 1, '#6e6258');
-      p.set(x, y0 + h - 2, '#8a7e72');
-    }
+    // Rain-splash weathering just above the footing.
+    for (let x = x0; x < x0 + w; x++)
+      for (let k = 0; k < 4; k++) if (hash2(x, k, 23) < 0.5 - k * 0.12) p.set(x, y0 + h - 5 - k, k === 0 ? lo2 : lo);
+    // Stone footing: a course of individual stones.
+    for (let x = x0 - 1; x < x0 + w + 1; x++)
+      for (let yy = 0; yy < 4; yy++) {
+        const stone = Math.floor((x - x0 + (yy > 1 ? 3 : 0)) / 6);
+        const edge = (x - x0 + (yy > 1 ? 3 : 0)) % 6 === 0 || yy === 2 || yy === 3 ? yy === 3 : false;
+        let c = hash2(stone, yy > 1 ? 1 : 0, 25) < 0.5 ? '#9a9088' : '#8a8078';
+        if (yy === 0 || yy === 2) c = '#b0a69c';
+        if ((x - x0 + (yy > 1 ? 3 : 0)) % 6 === 0 || edge) c = '#5e544c';
+        p.set(x, y0 + h - 4 + yy, c);
+      }
     if (style === 'timber') {
       const beam = '#6e4a34';
       for (let x = x0; x < x0 + w; x += 16) p.rect(x, y0 + 2, 2, h - 4, beam);
@@ -116,8 +132,19 @@ class Painter {
     }
   }
 
-  window(x: number, y: number, w = 10, h = 10, box?: string) {
+  window(x: number, y: number, w = 10, h = 10, box?: string, shutters?: string) {
     const p = this.p;
+    if (shutters) {
+      // Louvred shutters folded back beside the frame.
+      for (const sx of [x - 5, x + w + 1])
+        for (let yy = y; yy < y + h; yy++)
+          for (let xx = sx; xx < sx + 4; xx++) {
+            let c = (yy - y) % 2 ? shade(shutters, 1) : shutters;
+            if (xx === sx) c = light(shutters, 1);
+            if (xx === sx + 3) c = shade(shutters, 2);
+            p.set(xx, yy, c);
+          }
+    }
     const frame = '#5a3e2c';
     p.rect(x, y, w, h, frame);
     for (let yy = y + 1; yy < y + h - 1; yy++)
@@ -169,6 +196,25 @@ class Painter {
     p.set(x + w - 3, y + Math.floor(h / 2) + 1, '#f0c050');
     // Step.
     p.rect(x - 2, y + h, w + 4, 1, '#b8ac9c');
+  }
+
+  /** Climbing ivy from the ground up the wall. */
+  ivy(x: number, bottom: number, height: number, seed: number) {
+    const p = this.p;
+    let cx = x;
+    for (let k = 0; k < height; k++) {
+      const y = bottom - k;
+      if (hash2(seed, k, 31) < 0.3) cx += hash2(seed, k, 32) < 0.5 ? -1 : 1;
+      p.set(cx, y, '#4e7a3a');
+      if (k % 2 === 0) {
+        p.set(cx - 1, y, '#6ea24a');
+        p.set(cx + 1, y - 1, '#5a8e42');
+      }
+      if (k % 3 === 0) {
+        p.set(cx - 2, y - 1, '#8ac05a');
+        p.set(cx + 2, y, '#6ea24a');
+      }
+    }
   }
 
   chimney(x: number, y: number, h: number) {
@@ -246,8 +292,9 @@ function house(b: Building): BuildingSprite {
   pt.wall(2, wallY, w - 4, wallH, '#f3e6cc', 'timber');
   const doorX = 2 + TILE * (b.door!.x - b.x) + 2;
   pt.door(doorX, h - 22, 12, 20, '#9a5a3a');
-  pt.window(14, wallY + 9, 12, 10, '#f07aa0');
-  pt.window(w - 30, wallY + 9, 12, 10, '#f5d040');
+  pt.window(14, wallY + 9, 12, 10, '#f07aa0', '#5a8a6a');
+  pt.window(w - 30, wallY + 9, 12, 10, '#f5d040', '#5a8a6a');
+  pt.ivy(w - 8, h - 5, 26, 7);
   pt.p.rect(w - 44, h - 8, 3, 5, '#8a5a3a');
   const d = pt.done();
   return { ...d, ox: -2, oy: 0 };
@@ -299,12 +346,14 @@ function cottage(b: Building): BuildingSprite {
   const wallY = h - wallH;
   const roofC = COTTAGE_ROOFS[b.v % COTTAGE_ROOFS.length];
   if (b.v % 2) pt.chimney(12, 6, 16);
-  pt.roof(0, 10, w, wallY - 8, roofC, b.v % 3 === 0 ? 'thatch' : 'tile', 5);
+  pt.roof(0, 10, w, wallY - 8, roofC, b.v % 3 === 0 ? 'thatch' : 'tile', 5, b.v % 2 === 0);
   pt.wall(2, wallY, w - 4, wallH, COTTAGE_WALLS[b.v % COTTAGE_WALLS.length], b.v % 2 ? 'plaster' : 'timber');
   const doorX = 2 + TILE * (b.door!.x - b.x) + 2;
   pt.door(doorX, h - 22, 12, 20, ['#9a5a3a', '#4f6a8a', '#7a8a4a'][b.v % 3]);
-  pt.window(8, wallY + 9, 10, 10, '#e8a0b8');
-  pt.window(w - 20, wallY + 9, 10, 10, '#f5d040');
+  const shutter = ['#5a8a6a', '#4f6a9a', '#a85a4a', '#7a6a9a'][b.v % 4];
+  pt.window(9, wallY + 9, 10, 10, '#e8a0b8', b.v % 3 !== 1 ? shutter : undefined);
+  pt.window(w - 21, wallY + 9, 10, 10, '#f5d040', b.v % 3 !== 1 ? shutter : undefined);
+  if (b.v % 2 === 1) pt.ivy(4, h - 5, 22, b.v);
   const d = pt.done();
   return { ...d, ox: -2, oy: 0 };
 }

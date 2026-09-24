@@ -10,9 +10,9 @@ import type { SeasonLook, TreeSprite } from './nature';
  */
 
 /** Six tones, brightest first: rim, light, mid-light, mid, shadow, deep. */
-type Pal = [string, string, string, string, string, string];
+export type Pal = [string, string, string, string, string, string];
 
-const PALS: Record<string, Pal> = {
+export const PALS: Record<string, Pal> = {
   oakSpring: ['#f0fab0', '#c6ec7c', '#92d45c', '#62b24e', '#3f8c4a', '#2a6446'],
   oakSummer: ['#e4f69a', '#aee066', '#78c250', '#4c9e46', '#327c46', '#215840'],
   golden: ['#fbf6a0', '#e2ea6a', '#b8d24c', '#8ab240', '#5e8a3a', '#3e6036'],
@@ -63,7 +63,7 @@ const LIGHT = (() => {
   return l.map((v) => v / n);
 })();
 
-interface Mass {
+export interface Mass {
   x: number;
   y: number;
   r: number;

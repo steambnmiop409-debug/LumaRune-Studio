@@ -1,7 +1,8 @@
 import { hash2 } from '@lumina/core';
 import { Pix } from '../Pix';
 import { light, mix, pack, shade } from '../palette';
-import { canopy, trunk, type SeasonLook, type TreeSprite } from './nature';
+import { PALS, leafMass } from './foliage';
+import { trunk, type SeasonLook, type TreeSprite } from './nature';
 
 /** Landmark props. Each takes the object's own seed `v`, so no two on the island match. */
 const r = (v: number, k: number) => hash2(v, k, 5151);
@@ -39,15 +40,14 @@ export function fruitTree(v: number, season: SeasonLook): TreeSprite {
     p.outline(shade(br, 3));
     return { img: p.toCanvas(), swayRows: trunkTop, ax: 16, ay: 41 };
   }
-  const leaf = season === 2 ? mix('#8aa84a', '#d8a040', 0.5 + r(v, 2) * 0.3) : mix('#4e9a4a', '#7ab44c', r(v, 3));
   const blobs: Array<[number, number, number, number]> = [[cx, crownY, crownW, crownH]];
   const extra = 2 + Math.floor(r(v, 9) * 4);
   for (let i = 0; i < extra; i++) {
     const a = r(v, 10 + i) * Math.PI * 2;
     blobs.push([cx + Math.cos(a) * crownW * 0.6, crownY + Math.sin(a) * crownH * 0.5 - 1, 3.5 + r(v, 20 + i) * 3, 3.5 + r(v, 30 + i) * 2]);
   }
-  canopy(p, blobs, season === 0 ? light(leaf, 1) : leaf, v * 7 + 3, 4);
-  p.outline();
+  const pal = season === 2 ? PALS.golden : season === 0 ? PALS.oakSpring : PALS.oakSummer;
+  leafMass(p, blobs.map(([x, y, rx]) => ({ x, y, r: rx })), pal, v * 7 + 3);
   const inside = (x: number, y: number) => blobs.some(([cx, cy, rx, ry]) => ((x + 0.5 - cx) / rx) ** 2 + ((y + 0.5 - cy) / ry) ** 2 <= 0.8);
   if (season === 0) {
     // Blossom clusters.
