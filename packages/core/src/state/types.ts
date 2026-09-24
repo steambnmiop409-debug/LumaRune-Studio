@@ -25,6 +25,8 @@ export interface CropState {
   harvests: number;
   dead: DeathReason | null;
   dormant: boolean;
+  /** Part of a giant crop: the tile key of the giant's top-left corner. */
+  giant?: number;
 }
 
 export interface SoilState {
@@ -88,6 +90,8 @@ export interface PlayerState {
   carrying: CargoCrate[];
   cart: boolean;
   sleeping: boolean;
+  /** Mine floor the player is on (0 = out on the island). */
+  floor: number;
 }
 
 export interface ShipmentLine {
@@ -141,6 +145,19 @@ export interface WorldState {
   debris: Record<number, DebrisKind>;
   /** Ore and stone outcrops in the quarry, keyed by tile index. */
   nodes: Record<number, NodeKind>;
+  mine: MineState;
+  /** The farm's glasshouse has been restored. */
+  greenhouse: boolean;
+}
+
+/** Today's state of the mine below the quarry (rocks regrow every morning). */
+export interface MineState {
+  /** Rocks per floor, keyed by tile index on that floor. A floor has no entry until someone visits it today. */
+  rocks: Record<number, Record<number, NodeKind>>;
+  /** Tile of the ladder down, once uncovered today. */
+  ladders: Record<number, number>;
+  /** Deepest floor anyone has reached (unlocks the lift every 5 floors). */
+  deepest: number;
 }
 
 export type DebrisKind = 'weed' | 'stone' | 'twig';

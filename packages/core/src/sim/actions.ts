@@ -11,10 +11,12 @@ import { seasonOf, weekdayOf } from '../time/calendar';
 import { TILE, isFreshWater } from '../world/tiles';
 import type { InteractKind, WorldMap } from '../world/types';
 import { canTill, newSoil, placedAt } from './world';
-import { gift, npcAt, pickForage, talk } from './social';
+import { GIFTABLE, gift, npcAt, pickForage, talk } from './social';
 import { DEBRIS_NAME, weedFind } from './debris';
 import { NODE_NAME, applyHarvest, chestMove, collectMachine, giveAll, loadMachine, nodeDrops, rollHarvest } from './machines';
 import { isMachine } from '../data/items';
+import { mineInteract, mineUseItem, useCave } from './mine';
+import { harvestGiant } from './greenhouse';
 export { chestMove };
 
 /** Max distance (px) from the player's feet to a tile centre for tool use / interaction. */
@@ -80,10 +82,11 @@ export function useItem(ctx: SimContext, p: PlayerState, slot: number, x: number
   if (!stack) return null;
   if (!inReach(p, x, y)) return null;
   if (p.carrying.length) return '상자를 들고 있어서 손을 쓸 수 없어요.';
+  if (p.floor) return mineUseItem(ctx, p, slot, x, y);
   const def = getItem(stack.id);
   const key = y * map.w + x;
   const soil = state.soil[key];
-  if (def.kind === 'produce' || def.kind === 'forage') {
+  if (GIFTABLE.has(def.kind)) {
     const npc = npcAt(map, state.clock.minute, x, y);
     if (npc) return gift(ctx, p, npc, slot);
   }
@@ -248,6 +251,7 @@ export function useItem(ctx: SimContext, p: PlayerState, slot: number, x: number
 export function harvest(ctx: SimContext, p: PlayerState, x: number, y: number): Result {
   const { state, map, rng } = ctx;
   const key = y * map.w + x;
+  if (state.soil[key]?.crop?.giant !== undefined) return harvestGiant(ctx, p, key);
   const got = rollHarvest(state, rng, key);
   if (!got) return null;
   const def = getCrop(state.soil[key].crop!.id);
@@ -277,6 +281,7 @@ export function shopStock(state: WorldState, shop: ShopId): string[] {
 export function interact(ctx: SimContext, p: PlayerState, x: number, y: number): Result {
   const { state, map } = ctx;
   if (!inReach(p, x, y, REACH_PX + 6)) return null;
+  if (p.floor) return mineInteract(ctx, p, x, y);
   const kind = interactableAt(map, x, y);
   // A villager standing on or right next to the tile — unless the tile itself is a counter, board or bed.
   const npc = kind ? null : npcAt(map, state.clock.minute, x, y);
@@ -310,7 +315,11 @@ export function interact(ctx: SimContext, p: PlayerState, x: number, y: number):
         ctx.emit({ t: 'openCraft' }, p.id);
         return null;
       case 'cave':
-        return '동굴 안쪽은 무너진 바위로 막혀 있어요. 서늘한 바람만 불어와요.';
+        return useCave(ctx, p);
+      case 'greenhouse':
+        if (state.greenhouse) return null;
+        ctx.emit({ t: 'openRepair' }, p.id);
+        return null;
       case 'well': {
         const slot = p.inv.findIndex((s) => s && getItem(s.id).tool === 'can');
         if (slot < 0) return '물뿌리개가 없어요.';

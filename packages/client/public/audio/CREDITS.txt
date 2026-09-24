@@ -9,5 +9,5 @@ GeneralUser GS License v2.0: "You may use GeneralUser GS without restriction for
 creation, private or commercial." Full text: node_modules/generaluser/LICENSE.txt
 https://www.schristiancollins.com
 
-Music composed for Lumina Isle: Lighthouse Lullaby (title), Morning Fields (day),
-Sunset Pier (evening), Starlit Hill (night), Rain on the Window (rain).
+Music composed for Lumina Isle, arranged for the SoundFont's recorded instruments:
+Lighthouse Lullaby (title), Blossom Path (spring), Sun on the Tide (summer), Amber Orchard (autumn), Snow Lantern (winter), Sunset Pier (evening), Starlit Hill (night), Rain on the Window (rain), Lantern Deep (mine).

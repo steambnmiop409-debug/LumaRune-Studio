@@ -17,6 +17,13 @@ const MIGRATIONS: Record<number, Migration> = {
   2: (s) => ({ ...s, debris: {} }),
   // v4: quarry outcrops (machines keep their optional fields).
   3: (s) => ({ ...s, nodes: {} }),
+  // v5: the mine below the quarry (everyone starts on the island) and the farm glasshouse.
+  4: (s) => ({
+    ...s,
+    mine: { rocks: {}, ladders: {}, deepest: 0 },
+    greenhouse: false,
+    players: Object.fromEntries(Object.entries((s.players ?? {}) as Record<string, object>).map(([k, p]) => [k, { ...p, floor: 0 }])),
+  }),
 };
 
 export function makeSave(state: WorldState): SaveFile {

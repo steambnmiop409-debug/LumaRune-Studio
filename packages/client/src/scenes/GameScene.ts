@@ -19,6 +19,10 @@ import {
   NODE_NAME,
   timeLeft,
   debrisBlocks,
+  GIFTABLE,
+  mineFloor,
+  MINE_THEME_NAME,
+  MINE_DEPTH,
   type Dir,
   type GameEvent,
   type InteractKind,
@@ -34,9 +38,11 @@ import { drawText, measure } from '../engine/text';
 import { ClientWorld } from '../net/ClientWorld';
 import type { Connection } from '../net/Connection';
 import { WorldView, type ViewInput, type ViewPlayer } from '../render/WorldView';
+import { MineView, type MineViewInput } from '../render/MineView';
+import { SEASON_TRACK } from '../audio/AudioManager';
 import { Hud } from '../ui/Hud';
 import { formatGold } from '../ui/kit';
-import { DaySummaryPanel, JournalPanel, PackingPanel, PauseMenu, ShopPanel, SleepDialog, type Panel } from '../ui/panels';
+import { DaySummaryPanel, JournalPanel, LiftPanel, RepairPanel, PackingPanel, PauseMenu, ShopPanel, SleepDialog, type Panel } from '../ui/panels';
 import { TitleScene } from './TitleScene';
 import { BoardPanel, DialoguePanel } from '../ui/social';
 import { ChestPanel, CraftPanel } from '../ui/crafting';
@@ -62,12 +68,16 @@ const INTERACT_LABEL: Record<InteractKind, string> = {
   board: '마을 게시판',
   workbench: '작업대',
   cave: '동굴 입구',
+  greenhouse: '낡은 온실 고치기',
 };
 
 export class GameScene implements Scene {
   private game!: Game;
   private world: ClientWorld;
   private view: WorldView;
+  private mine: MineView;
+  /** Mine floor shown last frame (to announce arrivals). */
+  private shownFloor = 0;
   private hud = new Hud();
   private panel: Panel | null = null;
   private px: number;
@@ -96,6 +106,7 @@ export class GameScene implements Scene {
   ) {
     this.world = new ClientWorld(you, state);
     this.view = new WorldView(this.world.map);
+    this.mine = new MineView(state.seed, this.view.particles);
     this.px = this.world.self.x;
     this.py = this.world.self.y;
     this.hud.setGoldInstant(this.world.gold);
@@ -129,7 +140,13 @@ export class GameScene implements Scene {
 
   // ── Collision & targeting ──────────────────────────────────────────────
 
+  /** Mine floor the local player is on (0 = the island). */
+  private get floor(): number {
+    return this.world.self?.floor ?? 0;
+  }
+
   private blockedAt(x: number, y: number): boolean {
+    if (this.floor) return this.blockedInMine(x, y);
     const map = this.world.map;
     for (const [ox, oy] of [
       [-4, -3],
@@ -150,6 +167,24 @@ export class GameScene implements Scene {
     return false;
   }
 
+  private blockedInMine(x: number, y: number): boolean {
+    const f = mineFloor(this.world.state.seed, this.floor);
+    const rocks = this.world.state.mine.rocks[this.floor] ?? {};
+    for (const [ox, oy] of [
+      [-4, -3],
+      [4, -3],
+      [-4, 0],
+      [4, 0],
+    ]) {
+      const tx = Math.floor((x + ox) / TILE);
+      const ty = Math.floor((y + oy) / TILE);
+      if (tx < 0 || ty < 0 || tx >= f.w || ty >= f.h) return true;
+      const k = ty * f.w + tx;
+      if (f.solid[k] || rocks[k]) return true;
+    }
+    return false;
+  }
+
   private inReach(tx: number, ty: number, extra = 0): boolean {
     return Math.hypot(tx * TILE + 8 - this.px, ty * TILE + 8 - (this.py - 4)) <= REACH_PX + extra;
   }
@@ -163,18 +198,30 @@ export class GameScene implements Scene {
 
   private computeTarget() {
     const input = this.game.input;
-    const mx = Math.floor((input.mouseX + Math.round(this.view.camX)) / TILE);
-    const my = Math.floor((input.mouseY + Math.round(this.view.camY)) / TILE);
+    const cam = this.floor ? this.mine : this.view;
+    const mx = Math.floor((input.mouseX + Math.round(cam.camX)) / TILE);
+    const my = Math.floor((input.mouseY + Math.round(cam.camY)) / TILE);
     const mouseActive = performance.now() - input.mouseMovedAt < 3000 && !this.game.ui.hovering;
     this.target = mouseActive && this.inReach(mx, my) ? { x: mx, y: my } : this.facingTile();
   }
 
   /** The interactable the E key would use right now, if any. */
+  /** In the mine: the ladder up or down within reach, if any. */
+  private mineCandidate(): { kind: 'up' | 'down'; x: number; y: number } | null {
+    const f = mineFloor(this.world.state.seed, this.floor);
+    const ladder = this.world.state.mine.ladders[this.floor];
+    const spots: Array<{ kind: 'up' | 'down'; x: number; y: number }> = [{ kind: 'up', x: f.up.x, y: f.up.y }];
+    if (ladder !== undefined) spots.push({ kind: 'down', x: ladder % f.w, y: Math.floor(ladder / f.w) });
+    return spots.find((s) => this.inReach(s.x, s.y, 10) || (s.kind === 'up' && this.inReach(s.x, s.y + 1, 6))) ?? null;
+  }
+
   private interactCandidate(): { kind: InteractKind; x: number; y: number } | null {
     let best: { kind: InteractKind; x: number; y: number } | null = null;
     let bestD = Infinity;
     for (const it of this.world.map.interactables) {
       if (!this.inReach(it.x, it.y, 6)) continue;
+      // Once restored, the glasshouse door is just a doorway (it must not steal E from the beds beside it).
+      if (it.kind === 'greenhouse' && this.world.state.greenhouse) continue;
       const d = Math.hypot(it.x - this.target.x, it.y - this.target.y);
       if (d < bestD) {
         bestD = d;
@@ -243,16 +290,25 @@ export class GameScene implements Scene {
       if (o.moving) o.animT += dt;
     }
 
-    // Camera.
+    // Camera (snaps on arrival at a new floor, glides otherwise).
     const { width: vw, height: vh } = game.screen;
     const tx = this.px - vw / 2;
     const ty = this.py - 12 - vh / 2;
-    this.view.camX = approach(this.view.camX, tx, 8, dt);
-    this.view.camY = approach(this.view.camY, ty, 8, dt);
-    this.view.centerOn(this.view.camX + vw / 2, this.view.camY + vh / 2, vw, vh);
+    const floor = this.floor;
+    const arrived = floor !== this.shownFloor;
+    const cam = floor ? this.mine : this.view;
+    cam.camX = arrived ? tx : approach(cam.camX, tx, 8, dt);
+    cam.camY = arrived ? ty : approach(cam.camY, ty, 8, dt);
+    if (floor) this.mine.clamp(mineFloor(world.state.seed, floor), vw, vh);
+    else this.view.centerOn(this.view.camX + vw / 2, this.view.camY + vh / 2, vw, vh);
+    if (arrived) {
+      this.shownFloor = floor;
+      this.zone = 0;
+      if (floor) this.hud.showBanner(`광산 ${floor}층 · ${MINE_THEME_NAME[mineFloor(world.state.seed, floor).theme]}`);
+    }
 
     // Zone banner.
-    const tileZ = world.map.zone[Math.floor(this.py / TILE) * world.map.w + Math.floor(this.px / TILE)] as ZoneId;
+    const tileZ = floor ? 0 : (world.map.zone[Math.floor(this.py / TILE) * world.map.w + Math.floor(this.px / TILE)] as ZoneId);
     if (tileZ && tileZ !== this.zone) {
       this.zone = tileZ;
       this.hud.showBanner(ZONE_NAME[tileZ]);
@@ -263,7 +319,8 @@ export class GameScene implements Scene {
     this.pickups = this.pickups.filter((p) => p.t < 1.1);
 
     this.hud.update(dt, world.gold);
-    this.view.update(dt, this.viewInput(), vw, vh);
+    if (floor) this.mine.update(dt, this.mineInput(), vw, vh);
+    else this.view.update(dt, this.viewInput(), vw, vh);
     this.updateSound(dt);
   }
 
@@ -324,8 +381,8 @@ export class GameScene implements Scene {
     else if (this.useHeld > 0.35 && !this.swing) this.useSelected();
     if (interactDown) {
       // A villager right where we're looking wins over a nearby counter; otherwise use the nearest interactable.
-      const cand = this.interactCandidate();
-      const npcHere = npcAt(world.map, world.clock.minute, this.target.x, this.target.y);
+      const cand = this.floor ? this.mineCandidate() : this.interactCandidate();
+      const npcHere = !this.floor && npcAt(world.map, world.clock.minute, this.target.x, this.target.y);
       const t = npcHere && !(cand && cand.x === this.target.x && cand.y === this.target.y) ? this.target : (cand ?? this.target);
       this.send({ t: 'interact', tx: t.x, ty: t.y });
     }
@@ -362,6 +419,11 @@ export class GameScene implements Scene {
   }
 
   private footstep() {
+    if (this.floor) {
+      this.game.audio.play('step_path', { volume: 0.32, rate: 0.9 });
+      if (Math.random() < 0.5) this.view.particles.burst(this.px, this.py - 1, 2, ['#8a7a6a', '#6a5a4a'], 8, 5, 0, 0.35);
+      return;
+    }
     const map = this.world.map;
     const t = map.terrain[Math.floor(this.py / TILE) * map.w + Math.floor(this.px / TILE)];
     const kind = t === Terrain.Dock || t === Terrain.Bridge ? 'step_wood' : t === Terrain.Path || t === Terrain.Cobble || t === Terrain.Sand || t === Terrain.Rock || t === Terrain.Stairs ? 'step_path' : 'step_grass';
@@ -394,9 +456,10 @@ export class GameScene implements Scene {
         this.open(new SleepDialog(() => this.send({ t: 'sleep' })));
         break;
       case 'fx': {
+        if ((e.floor ?? 0) !== this.floor && e.kind !== 'ladder') break;
         const x = e.x * TILE + 8;
         const y = e.y * TILE + 10;
-        const pan = (x - (this.view.camX + this.game.screen.width / 2)) / 300;
+        const pan = (x - ((this.floor ? this.mine.camX : this.view.camX) + this.game.screen.width / 2)) / 300;
         if (e.kind === 'till' || e.kind === 'clear') {
           ps.burst(x, y, 10, e.kind === 'clear' ? ['#6a9a4a', '#8ab85a', '#8a5a3a'] : ['#8a5a3a', '#a87a52', '#6e4630'], 40, 40, 160, 0.5);
           audio.play('hoe', { pan });
@@ -408,6 +471,14 @@ export class GameScene implements Scene {
           ps.burst(x, y - 4, 16, ['#b0a898', '#8f8a86', '#d0c8bc', '#6a6670'], 70, 60, 240, 0.6);
           audio.play('hoe', { pan, rate: 0.6 });
           audio.play('crate', { pan, volume: 0.6, rate: 1.6, delay: 0.04 });
+        } else if (e.kind === 'restore') {
+          for (let i = 0; i < 40; i++) ps.spawn({ kind: 'sparkle', x: x - 60 + Math.random() * 120, y: y - 50 + Math.random() * 70, vy: -10, max: 1 + Math.random(), color: i % 3 ? '#cfeef4' : '#ffffff' });
+          audio.play('chime', { volume: 0.8 });
+          audio.play('coin', { rate: 0.8, delay: 0.1 });
+        } else if (e.kind === 'ladder') {
+          audio.play('step_wood', { volume: 0.6, rate: 0.8 });
+          audio.play('step_wood', { volume: 0.5, rate: 0.9, delay: 0.18 });
+          if (e.by !== me) ps.burst(x, y - 4, 10, ['#d8c8a8', '#a89878'], 30, 30, 120, 0.5);
         } else if (e.kind === 'load') {
           audio.play('crate', { pan, volume: 0.55, rate: 1.1 });
           ps.burst(x, y - 8, 6, ['#fff4d0', '#e8d8b0'], 20, 30, 100, 0.4);
@@ -434,6 +505,10 @@ export class GameScene implements Scene {
         const x = e.x * TILE + 8;
         const y = e.y * TILE + 4;
         this.pickups.push({ img: Sprites.icon(`crop.${def.id}`), x, y, t: 0, label: `+${e.qty}` });
+        if (e.giant) {
+          ps.burst(x, y, 30, [def.produceColor, def.leafColor, '#8a5a3a'], 90, 70, 200, 0.8);
+          if (e.by === me) audio.play('harvest', { rate: 0.6, volume: 1 });
+        }
         for (let i = 0; i < 4 + e.q * 2; i++) ps.spawn({ kind: 'sparkle', x: x - 8 + Math.random() * 16, y: y - 10 + Math.random() * 10, vy: -12, max: 0.6 + Math.random() * 0.4, color: e.q >= 4 ? '#ffe070' : '#ffffff' });
         ps.burst(x, y + 4, 6, ['#8a5a3a', def.leafColor], 30, 30, 150, 0.4);
         if (e.by === me) {
@@ -491,6 +566,12 @@ export class GameScene implements Scene {
       case 'saved':
         this.hud.toast('저장했어요', 'info');
         break;
+      case 'openRepair':
+        this.open(new RepairPanel(this.world, () => this.send({ t: 'repair' })));
+        break;
+      case 'openLift':
+        this.open(new LiftPanel(e.floors, (f) => this.send({ t: 'lift', floor: f })));
+        break;
       case 'bought':
         audio.play('coin');
         this.hud.toast(`${getItem(e.item).name} ×${e.qty} 구매 (${formatGold(e.gold)})`, 'good', Sprites.icon(e.item));
@@ -511,6 +592,13 @@ export class GameScene implements Scene {
     const m = world.clock.minute;
     const w = world.weather;
     const raining = isPrecipitating(w, m);
+    if (this.floor) {
+      // Underground: no sky, only a cold draft through the tunnels.
+      for (const a of ['sea', 'rain', 'birds', 'crickets'] as const) audio.ambience(a, 0);
+      audio.ambience('wind', 0.12);
+      audio.playMusic('mine');
+      return;
+    }
     const tx = Math.floor(this.px / TILE);
     const ty = Math.floor(this.py / TILE);
     let sea = 0;
@@ -528,8 +616,7 @@ export class GameScene implements Scene {
     audio.ambience('wind', w.kind === 'storm' ? 0.8 : season === 3 || w.wind > 0.4 ? 0.35 : 0.08);
     audio.ambience('birds', !raining && m >= 330 && m < 1080 && season !== 3 ? 0.55 : 0);
     audio.ambience('crickets', !raining && (m >= 1170 || m < 300) && (season === 1 || season === 2) ? 0.5 : 0);
-    const track = raining ? 'rain' : m < 1020 ? 'day' : m < 1200 ? 'evening' : 'night';
-    audio.playMusic(track);
+    audio.playMusic(raining ? 'rain' : m < 1020 ? SEASON_TRACK[season] : m < 1200 ? 'evening' : 'night');
   }
 
   // ── Render ─────────────────────────────────────────────────────────────
@@ -537,28 +624,14 @@ export class GameScene implements Scene {
   private viewInput(): ViewInput {
     const world = this.world;
     const minute = world.minute(!!this.panel?.pauses);
-    const self = world.self;
-    const players: ViewPlayer[] = [
-      {
-        id: self.id,
-        look: self.look,
-        x: Math.round(this.px),
-        y: Math.round(this.py),
-        dir: this.dir,
-        moving: this.moving,
-        animT: this.animT,
-        carrying: self.carrying.length,
-        swing: this.swing,
-        blink: this.blinkT < 0,
-      },
-    ];
+    const players: ViewPlayer[] = [this.selfView()];
     for (const n of allNpcPoses(world.map, minute)) {
       const t = (this.npcAnim.get(n.id) ?? 0) + (n.moving ? 1 / 60 : 0);
       this.npcAnim.set(n.id, t);
       players.push({ id: n.id, look: NPC_BY_ID.get(n.id)!.look, x: Math.round(n.x), y: Math.round(n.y), dir: n.dir, moving: n.moving, animT: t, carrying: 0 });
     }
     for (const o of world.others.values())
-      players.push({ id: o.id, look: o.look, x: Math.round(o.rx), y: Math.round(o.ry), dir: o.dir, moving: o.moving, animT: o.animT, carrying: o.carrying, name: o.name });
+      if (!o.floor) players.push({ id: o.id, look: o.look, x: Math.round(o.rx), y: Math.round(o.ry), dir: o.dir, moving: o.moving, animT: o.animT, carrying: o.carrying, name: o.name });
     return {
       minute,
       day: world.clock.day,
@@ -573,8 +646,34 @@ export class GameScene implements Scene {
       debris: world.state.debris,
       nodes: world.state.nodes,
       now: world.clock.day * 1440 + Math.floor(minute),
+      greenhouse: world.state.greenhouse,
       boardFresh: !!world.state.request && !world.state.request.done,
     };
+  }
+
+  private selfView(): ViewPlayer {
+    const self = this.world.self;
+    return {
+      id: self.id,
+      look: self.look,
+      x: Math.round(this.px),
+      y: Math.round(this.py),
+      dir: this.dir,
+      moving: this.moving,
+      animT: this.animT,
+      carrying: self.carrying.length,
+      swing: this.swing,
+      blink: this.blinkT < 0,
+    };
+  }
+
+  private mineInput(): MineViewInput {
+    const world = this.world;
+    const floor = this.floor;
+    const players: ViewPlayer[] = [this.selfView()];
+    for (const o of world.others.values())
+      if (o.floor === floor) players.push({ id: o.id, look: o.look, x: Math.round(o.rx), y: Math.round(o.ry), dir: o.dir, moving: o.moving, animT: o.animT, carrying: o.carrying, name: o.name });
+    return { floor, minute: world.minute(!!this.panel?.pauses), rocks: world.state.mine.rocks[floor] ?? {}, ladder: world.state.mine.ladders[floor], players };
   }
 
   render(ctx: CanvasRenderingContext2D): void {
@@ -584,34 +683,24 @@ export class GameScene implements Scene {
     const world = this.world;
     const self = world.self;
     if (!self) return;
+    if (this.floor) {
+      this.renderMine(ctx, vw, vh);
+      return;
+    }
     const input = this.viewInput();
     this.view.render(ctx, vw, vh, input);
     const cx = Math.round(this.view.camX);
     const cy = Math.round(this.view.camY);
 
     // Other players' name tags.
-    for (const o of world.others.values()) drawText(ctx, o.name, Math.round(o.rx - cx), Math.round(o.ry - 44 - cy), { font: 'small', color: P.paperLight, outline: P.ink, align: 'center' });
+    for (const o of world.others.values()) if (!o.floor) drawText(ctx, o.name, Math.round(o.rx - cx), Math.round(o.ry - 44 - cy), { font: 'small', color: P.paperLight, outline: P.ink, align: 'center' });
 
     for (const p of input.players) {
       const npc = NPC_BY_ID.get(p.id);
       if (npc && Math.hypot(p.x - this.px, p.y - this.py) < 64) drawText(ctx, npc.name, p.x - cx, p.y - 44 - cy, { font: 'small', color: P.paperLight, outline: P.ink, align: 'center' });
     }
 
-    // Pickups flying to the player.
-    for (const p of this.pickups) {
-      const t = p.t;
-      let x = p.x;
-      let y = p.y;
-      if (t < 0.45) y -= Math.sin((t / 0.45) * Math.PI) * 14 + t * 10;
-      else {
-        const k = (t - 0.45) / 0.65;
-        x = p.x + (this.px - p.x) * k;
-        y = p.y - 5 + (this.py - 20 - (p.y - 5)) * k;
-      }
-      ctx.drawImage(p.img, Math.round(x - 8 - cx), Math.round(y - 8 - cy));
-      if (t < 0.8) drawText(ctx, p.label, Math.round(p.x + 8 - cx), Math.round(p.y - 22 - cy), { font: 'small', color: P.white, outline: P.ink });
-    }
-
+    this.drawPickups(ctx, cx, cy);
     if (!this.panel) {
       // Target brackets.
       const held = self.inv[self.sel];
@@ -638,7 +727,7 @@ export class GameScene implements Scene {
       if (npcHere) {
         const heldKind = held ? getItem(held.id).kind : null;
         const name = NPC_BY_ID.get(npcHere)!.name;
-        label = heldKind === 'produce' || heldKind === 'forage' ? `${name}와 대화 · 클릭: 선물` : `${name}와 대화`;
+        label = heldKind && GIFTABLE.has(heldKind) ? `${name}와 대화 · 클릭: 선물` : `${name}와 대화`;
         lx = tx * TILE + 8 - cx;
         ly = ty * TILE - 30 - cy;
       } else if (placedHere && MACHINE_NAME[placedHere.kind]) {
@@ -670,7 +759,7 @@ export class GameScene implements Scene {
         label = `${getItem(forageHere).name} 줍기`;
         lx = tx * TILE + 8 - cx;
         ly = ty * TILE - 6 - cy;
-      } else if (cand) {
+      } else if (cand && !(cand.kind === 'greenhouse' && world.state.greenhouse)) {
         label = cand.kind === 'ship' ? (self.carrying.length ? `상자 ${self.carrying.length}개 싣기` : world.shipPresent ? '화물선 (상자를 들고 오세요)' : '배는 내일 아침에') : INTERACT_LABEL[cand.kind];
         lx = cand.x * TILE + 8 - cx;
         ly = cand.y * TILE - 6 - cy;
@@ -689,17 +778,67 @@ export class GameScene implements Scene {
       if (hs?.crop && !ui.hovering && performance.now() - game.input.mouseMovedAt < 2000) this.inspect(hs, game.input.mouseX, game.input.mouseY);
     }
 
-    // HUD.
+    this.drawHud(ctx, vw, vh, input.minute);
+  }
+
+  /** Items flying from where they were gathered into the player's bag. */
+  private drawPickups(ctx: CanvasRenderingContext2D, cx: number, cy: number) {
+    for (const p of this.pickups) {
+      const t = p.t;
+      let x = p.x;
+      let y = p.y;
+      if (t < 0.45) y -= Math.sin((t / 0.45) * Math.PI) * 14 + t * 10;
+      else {
+        const k = (t - 0.45) / 0.65;
+        x = p.x + (this.px - p.x) * k;
+        y = p.y - 5 + (this.py - 20 - (p.y - 5)) * k;
+      }
+      ctx.drawImage(p.img, Math.round(x - 8 - cx), Math.round(y - 8 - cy));
+      if (t < 0.8) drawText(ctx, p.label, Math.round(p.x + 8 - cx), Math.round(p.y - 22 - cy), { font: 'small', color: P.white, outline: P.ink });
+    }
+  }
+
+  private drawHud(ctx: CanvasRenderingContext2D, vw: number, vh: number, minute: number) {
+    const world = this.world;
+    const self = world.self;
+    const ui = this.game.ui;
     const departed = !world.shipPresent;
-    this.hud.skyDial(ui, vw, input.minute, world.clock.day, world.weather, world.forecast, world.shipPresent, departed, world.gold, this.time);
+    this.hud.skyDial(ui, vw, minute, world.clock.day, world.weather, world.forecast, world.shipPresent, departed, world.gold, this.time);
     this.hud.hotbar(ui, vw, vh, self, (i) => this.select(i));
     this.hud.stamina(ui, vw, vh, self);
     this.hud.carrying(ui, vw, vh, self.carrying, self.cart);
     this.hud.drawToasts(ui);
     this.hud.drawBanner(ui, vw, vh);
     drawText(ctx, 'Tab 일지 · M 지도 · Esc 메뉴', 6, vh - 12, { font: 'small', color: P.paperLight, outline: P.ink });
-
     if (this.panel) this.panel.draw(ui, vw, vh);
+  }
+
+  /** Underground: the floor, pickups, the target bracket and ladder / rock hints, then the HUD. */
+  private renderMine(ctx: CanvasRenderingContext2D, vw: number, vh: number) {
+    const world = this.world;
+    const self = world.self;
+    const input = this.mineInput();
+    this.mine.render(ctx, vw, vh, input);
+    const cx = Math.round(this.mine.camX);
+    const cy = Math.round(this.mine.camY);
+    for (const o of world.others.values()) if (o.floor === this.floor) drawText(ctx, o.name, Math.round(o.rx - cx), Math.round(o.ry - 44 - cy), { font: 'small', color: P.paperLight, outline: P.ink, align: 'center' });
+    this.drawPickups(ctx, cx, cy);
+    if (!this.panel) {
+      const held = self.inv[self.sel];
+      const tx = this.target.x;
+      const ty = this.target.y;
+      if (held) {
+        const pulse = Math.round(Math.sin(this.time * 6) * 1);
+        ctx.drawImage(Sprites.cursor(P.paperLight), tx * TILE - 2 - pulse - cx, ty * TILE - 2 - pulse - cy, 20 + pulse * 2, 20 + pulse * 2);
+      }
+      const f = mineFloor(world.state.seed, this.floor);
+      const rock = input.rocks[ty * f.w + tx];
+      const cand = this.mineCandidate();
+      if (rock) this.whisper(ctx, `${NODE_NAME[rock as keyof typeof NODE_NAME]} · 곡괭이로 캐기`, tx * TILE + 8 - cx, ty * TILE - 8 - cy);
+      else if (cand?.kind === 'up') this.whisper(ctx, '사다리 타고 지상으로', cand.x * TILE + 8 - cx, cand.y * TILE - 6 - cy);
+      else if (cand?.kind === 'down') this.whisper(ctx, this.floor >= MINE_DEPTH ? '가장 깊은 곳이에요' : `${this.floor + 1}층으로 내려가기`, cand.x * TILE + 8 - cx, cand.y * TILE - 6 - cy);
+    }
+    this.drawHud(ctx, vw, vh, input.minute);
   }
 
   private whisper(ctx: CanvasRenderingContext2D, text: string, x: number, y: number) {

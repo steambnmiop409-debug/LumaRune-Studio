@@ -129,6 +129,8 @@ export class ClientWorld {
       case 'debris':
         this.state.debris = msg.debris;
         this.state.nodes = msg.nodes;
+        this.state.mine = msg.mine;
+        this.state.greenhouse = msg.greenhouse;
         break;
       case 'social':
         this.state.npcs = msg.npcs;
@@ -136,6 +138,11 @@ export class ClientWorld {
         this.state.request = msg.request;
         break;
       case 'event':
+        // A warp moves us to another floor right away, so collision and rendering switch in the same frame.
+        if (msg.e.t === 'warp') {
+          this.correction = { x: msg.e.x, y: msg.e.y };
+          if (this.self) this.self.floor = msg.e.floor;
+        }
         this.events.push(msg.e);
         break;
     }

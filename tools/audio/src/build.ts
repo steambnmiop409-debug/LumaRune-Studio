@@ -8,7 +8,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ffmpegPath from 'ffmpeg-static';
 import { type Buf, SR, length, loopify, loudness, normalize, peak, rms } from './dsp';
-import { SONGS, performSong } from './music';
+import { SONGS, SONG_TITLES, performSong } from './music';
 import { AMB_RECIPES, SFX_RECIPES } from './sfx';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../../packages/client/public/audio');
@@ -71,8 +71,8 @@ GeneralUser GS License v2.0: "You may use GeneralUser GS without restriction for
 creation, private or commercial." Full text: node_modules/generaluser/LICENSE.txt
 https://www.schristiancollins.com
 
-Music composed for Lumina Isle: Lighthouse Lullaby (title), Morning Fields (day),
-Sunset Pier (evening), Starlit Hill (night), Rain on the Window (rain).
+Music composed for Lumina Isle, arranged for the SoundFont's recorded instruments:
+${SONG_TITLES.join(', ')}.
 `,
 );
 console.log(`\n${report.length} files written to ${root}`);

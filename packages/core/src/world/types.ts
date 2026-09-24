@@ -85,7 +85,7 @@ export interface Building {
   v: number;
 }
 
-export type InteractKind = 'seedShop' | 'toolShop' | 'ship' | 'packing' | 'bed' | 'well' | 'board' | 'workbench' | 'cave';
+export type InteractKind = 'seedShop' | 'toolShop' | 'ship' | 'packing' | 'bed' | 'well' | 'board' | 'workbench' | 'cave' | 'greenhouse';
 
 export interface Interactable {
   kind: InteractKind;
@@ -129,6 +129,8 @@ export interface WorldMap {
   falls: number[];
   /** Quarry floor where ore outcrops appear each morning (empty rect if none). */
   quarry: Rect;
+  /** The glasshouse on the farm: its whole footprint (walls one tile thick, door in the middle of the front). */
+  greenhouse: Rect;
 }
 
 export type ZoneAt = (x: number, y: number) => ZoneId;

@@ -14,7 +14,9 @@ import {
   findCrop,
   formatDate,
   getItem,
+  getCrop,
   unitPrice,
+  GREENHOUSE_COST,
   type ClientMessage,
   type CropCategory,
   type DaySummary,
@@ -691,6 +693,82 @@ export class SleepDialog implements Panel {
   }
 }
 
+/** Restoring the ruined glasshouse: what it costs and what you have. */
+export class RepairPanel implements Panel {
+  closed = false;
+  pauses = true;
+  constructor(
+    private world: ClientWorld,
+    private onRepair: () => void,
+  ) {}
+
+  draw(ui: UI, vw: number, vh: number): void {
+    dimBackground(ui, vw, vh, 0.35);
+    const W = 250;
+    const H = 72 + (GREENHOUSE_COST.items.length + 1) * 18 + 34;
+    const x = Math.round((vw - W) / 2);
+    const y = Math.round((vh - H) / 2);
+    const c = ui.ctx;
+    ui.panel({ x, y, w: W, h: H });
+    drawText(c, '낡은 온실', x + W / 2, y + 10, { font: 'bold', align: 'center' });
+    drawText(c, '유리를 다시 끼우면 계절과 날씨에 상관없이', x + W / 2, y + 26, { font: 'small', color: P.inkSoft, align: 'center' });
+    drawText(c, '어떤 작물이든 기를 수 있어요. (7×4칸)', x + W / 2, y + 38, { font: 'small', color: P.inkSoft, align: 'center' });
+    const self = this.world.self;
+    let ly = y + 56;
+    const row = (icon: HTMLCanvasElement | null, label: string, ok: boolean, have: string) => {
+      if (icon) c.drawImage(icon, x + 20, ly - 3);
+      drawText(c, label, x + 40, ly, { font: 'small' });
+      drawText(c, have, x + W - 20, ly, { font: 'small', color: ok ? P.tealDark : P.coralDark, align: 'right' });
+      ly += 18;
+    };
+    row(Sprites.coin(), `${GREENHOUSE_COST.gold.toLocaleString()}G`, this.world.gold >= GREENHOUSE_COST.gold, formatGold(this.world.gold));
+    let ready = this.world.gold >= GREENHOUSE_COST.gold;
+    for (const [id, n] of GREENHOUSE_COST.items) {
+      const have = countItem(self.inv, id);
+      ready &&= have >= n;
+      row(Sprites.icon(id), `${getItem(id).name} ×${n}`, have >= n, `${have}/${n}`);
+    }
+    if (ui.button({ x: x + 16, y: y + H - 30, w: 104, h: 22 }, '복원하기', { tone: ready ? 'brass' : 'paper' }) && ready) {
+      this.onRepair();
+      this.closed = true;
+    }
+    if (ui.button({ x: x + W - 120, y: y + H - 30, w: 104, h: 22 }, '다음에')) this.closed = true;
+  }
+}
+
+/** The lift at the mine entrance: floor 1, or any checkpoint (every 5 floors) already reached. */
+export class LiftPanel implements Panel {
+  closed = false;
+  pauses = true;
+  constructor(
+    private floors: number[],
+    private onPick: (floor: number) => void,
+  ) {}
+
+  draw(ui: UI, vw: number, vh: number): void {
+    dimBackground(ui, vw, vh, 0.35);
+    const cols = Math.min(4, this.floors.length);
+    const rows = Math.ceil(this.floors.length / cols);
+    const W = Math.max(200, cols * 52 + 32);
+    const H = 64 + rows * 28 + 30;
+    const x = Math.round((vw - W) / 2);
+    const y = Math.round((vh - H) / 2);
+    ui.panel({ x, y, w: W, h: H });
+    drawText(ui.ctx, '광산 승강기', x + W / 2, y + 12, { font: 'bold', align: 'center' });
+    drawText(ui.ctx, '내려갈 층을 고르세요. 5층마다 멈춰요.', x + W / 2, y + 28, { font: 'small', color: P.inkSoft, align: 'center' });
+    const bx0 = x + Math.round((W - cols * 52) / 2) + 2;
+    this.floors.forEach((f, i) => {
+      const bx = bx0 + (i % cols) * 52;
+      const by = y + 48 + Math.floor(i / cols) * 28;
+      if (ui.button({ x: bx, y: by, w: 46, h: 22 }, `${f}층`, { tone: i === this.floors.length - 1 ? 'brass' : 'paper' })) {
+        this.onPick(f);
+        this.closed = true;
+      }
+    });
+    if (ui.button({ x: x + W / 2 - 40, y: y + H - 28, w: 80, h: 20 }, '그만두기')) this.closed = true;
+  }
+}
+
 export class DaySummaryPanel implements Panel {
   closed = false;
   pauses = true;
@@ -750,6 +828,7 @@ export class DaySummaryPanel implements Panel {
     if (d.rot) notes.push(`비를 너무 맞아 ${d.rot}그루가 짓물렀어요.`);
     if (d.drought) notes.push(`물이 부족해 ${d.drought}그루가 말랐어요.`);
     if (this.s.ready) notes.push(`${this.s.ready}그루가 수확을 기다려요.`);
+    if (this.s.giant) notes.push(`밤사이 ${getCrop(this.s.giant).name}가 거대하게 자랐어요!`);
     if (this.s.passedOut) notes.push('너무 늦게까지 일해서 쓰러졌어요… (체력 70%)');
     notes.push(`오늘 날씨: ${WEATHER_NAME[this.s.weather.kind]} ${Math.round(this.s.weather.minTemp)}~${Math.round(this.s.weather.maxTemp)}°C`);
     notes.slice(0, 3).forEach((n, i) => drawText(c, n, x + 16, y + 202 + i * 11, { font: 'small', color: P.inkSoft }));

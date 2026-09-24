@@ -197,7 +197,7 @@ export function idleHint(kind: PlaceableKind): string {
 /** Rolls what the ripe crop on tile `key` would give, without touching the field. */
 export function rollHarvest(state: WorldState, rng: Rng, key: number): ItemStack | null {
   const soil = state.soil[key];
-  if (!soil?.crop || soil.crop.dead || !isReady(soil.crop)) return null;
+  if (!soil?.crop || soil.crop.dead || !isReady(soil.crop) || soil.crop.giant !== undefined) return null;
   const def = getCrop(soil.crop.id);
   const q = rollQuality(soil, rng);
   return { id: `crop.${def.id}`, qty: rollYield(def, q, rng), q };
@@ -367,19 +367,20 @@ export function spawnNodes(state: WorldState, map: WorldMap, rng: Rng, target = 
   }
 }
 
-/** What a broken outcrop drops. */
-export function nodeDrops(kind: NodeKind, rng: Rng): ItemStack[] {
+/** What a broken outcrop drops. Deeper mine floors (`floor`) yield more ore and rarer gems. */
+export function nodeDrops(kind: NodeKind, rng: Rng, floor = 0): ItemStack[] {
+  const bonus = floor >= 20 ? 1 : 0;
   switch (kind) {
     case 'stone':
       return [{ id: 'mat.stone', qty: rng.int(2, 4) }, ...(rng.chance(0.12) ? [{ id: 'mat.coal', qty: 1 }] : [])];
     case 'coal':
       return [{ id: 'mat.coal', qty: rng.int(1, 3) }, { id: 'mat.stone', qty: 1 }];
     case 'copper':
-      return [{ id: 'ore.copper', qty: rng.int(2, 4) }, { id: 'mat.stone', qty: 1 }];
+      return [{ id: 'ore.copper', qty: rng.int(2, 4) + bonus }, { id: 'mat.stone', qty: 1 }];
     case 'iron':
-      return [{ id: 'ore.iron', qty: rng.int(1, 3) }, { id: 'mat.stone', qty: 1 }];
+      return [{ id: 'ore.iron', qty: rng.int(1, 3) + bonus + (floor >= 10 ? 1 : 0) }, { id: 'mat.stone', qty: 1 }];
     default: {
-      const r = rng.next();
+      const r = rng.next() * (1 - Math.min(0.45, floor * 0.015));
       return [{ id: r < 0.68 ? 'gem.quartz' : r < 0.94 ? 'gem.amethyst' : 'gem.aquamarine', qty: 1 }];
     }
   }

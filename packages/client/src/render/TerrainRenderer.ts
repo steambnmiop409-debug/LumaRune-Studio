@@ -61,6 +61,9 @@ const PATH = ['#e6cb98', '#d8b683', '#c6a06f', '#b08a5d'].map(C);
 const COBBLE = ['#d6cdc0', '#cbc1b4', '#bfb5a9', '#b1a79c'].map(C);
 const MORTAR = C('#958980');
 const ROCK = ['#b1aaa1', '#9d968e', '#8a837d', '#77716c'].map(C);
+/** Weathered flat rock: sunlit top, body, shade, deep shade; and the cracks between slabs. */
+const SLAB = ['#cdc6bc', '#b6afa6', '#a19a91', '#8b857e', '#77716b'].map(C);
+const SLAB_CRACK = C('#5e5852');
 const PLANK = ['#c39461', '#b38555', '#a3774b'].map(C);
 const PLANK_SEAM = C('#6e4b32');
 const PLANK_DARK = C('#5a3c28');
@@ -154,6 +157,44 @@ function cobble(wx: number, wy: number, seed: number): number {
   if (ry < -1.4) return Math.max(0, tone - 1);
   if (ry > 1.6) return Math.min(3, tone + 1);
   return tone;
+}
+
+/**
+ * Flat rock seen from above: big irregular slabs (a jittered Voronoi), each lit from the top left,
+ * with dark cracks between them. Returns the slab tone 0..4, -1 for a crack, and how near the crack we are.
+ */
+function slab(wx: number, wy: number, seed: number): { tone: number; edge: number } {
+  const cw = 13;
+  const ch = 10;
+  const gx = Math.floor(wx / cw);
+  const gy = Math.floor(wy / ch);
+  let d1 = Infinity;
+  let d2 = Infinity;
+  let best = 0;
+  let rx = 0;
+  let ry = 0;
+  for (let oy = -1; oy <= 1; oy++)
+    for (let ox = -1; ox <= 1; ox++) {
+      const cx = gx + ox;
+      const cy = gy + oy;
+      const fx = cx * cw + 2 + hash2(cx, cy, seed + 16) * (cw - 4);
+      const fy = cy * ch + 2 + hash2(cx, cy, seed + 17) * (ch - 4);
+      const d = Math.hypot(wx + 0.5 - fx, (wy + 0.5 - fy) * 1.2);
+      if (d < d1) {
+        d2 = d1;
+        d1 = d;
+        best = cy * 7919 + cx;
+        rx = wx + 0.5 - fx;
+        ry = wy + 0.5 - fy;
+      } else if (d < d2) d2 = d;
+    }
+  const edge = d2 - d1;
+  if (edge < 1.1) return { tone: -1, edge };
+  // Each slab tilts a little: lit edge toward the top left, shaded toward the bottom right.
+  const lit = -(rx * 0.45 + ry * 0.7) / 6 + (hash2(best, 2, seed) - 0.5) * 0.9;
+  let tone = lit > 0.55 ? 0 : lit > 0.1 ? 1 : lit > -0.35 ? 2 : 3;
+  if (edge < 2.2) tone = Math.min(4, tone + 1);
+  return { tone, edge };
 }
 
 interface Chunk {
@@ -599,9 +640,12 @@ export class TerrainRenderer {
               break;
             }
             case Terrain.Rock: {
-              col = band(ROCK, v, wx, wy);
-              if (h < 0.03) col = ROCK[3];
-              if (this.season === 3 && valueNoise(wx / 7, wy / 7, seed + 91) > 0.45) col = SNOW[valueNoise(wx / 7, wy / 7, seed + 91) > 0.6 ? 1 : 3];
+              const s = slab(wx, wy, seed);
+              col = s.tone < 0 ? SLAB_CRACK : SLAB[s.tone];
+              // Moss and lichen creep out of the cracks (not under snow).
+              if (this.season !== 3 && s.edge < 3.2 && valueNoise(wx / 6, wy / 6, seed + 88) > 0.6) col = MOSS[hash2(wx, wy, seed + 89) < 0.55 ? 0 : 1];
+              else if (s.tone >= 0 && h < 0.02) col = SLAB[4];
+              if (this.season === 3 && s.tone >= 0 && valueNoise(wx / 7, wy / 7, seed + 91) > 0.45) col = SNOW[valueNoise(wx / 7, wy / 7, seed + 91) > 0.6 ? 1 : 3];
               break;
             }
             case Terrain.Dock: {

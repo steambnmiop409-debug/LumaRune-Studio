@@ -421,6 +421,16 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
 
   addBuilding('windmill', farm.x - 8, farm.y + farm.h - 9, 4, 4, 1);
 
+  // The old glasshouse in the farm's north-east corner: walls are solid, the 7×4 inside is soil once restored.
+  const greenhouse: Rect = { x: farm.x + farm.w - 10, y: farm.y, w: 9, h: 6 };
+  for (let yy = greenhouse.y; yy < greenhouse.y + greenhouse.h; yy++)
+    for (let xx = greenhouse.x; xx < greenhouse.x + greenhouse.w; xx++) {
+      const wall = yy === greenhouse.y || yy === greenhouse.y + greenhouse.h - 1 || xx === greenhouse.x || xx === greenhouse.x + greenhouse.w - 1;
+      if (wall && !(xx === greenhouse.x + 4 && yy === greenhouse.y + greenhouse.h - 1)) solid[idx(xx, yy)] = 1;
+    }
+  interactables.push({ kind: 'greenhouse', x: greenhouse.x + 4, y: greenhouse.y + greenhouse.h - 1 });
+  reserve(greenhouse.x - 1, greenhouse.y, greenhouse.w + 2, greenhouse.h + 2);
+
   const seedShop = addBuilding('seedShop', plaza.x + 1, plaza.y - 4, 6, 4, 3);
   interactables.push({ kind: 'seedShop', x: seedShop.door!.x, y: seedShop.door!.y });
   addBuilding('cottage', plaza.x + 8, plaza.y - 4, 5, 4, 2);
@@ -973,6 +983,9 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
         const meadowy = valueNoise(x / 7, y / 7, seed + 99);
         if ((t === Terrain.Grass || t === Terrain.Meadow) && z !== Zone.Farm && z !== Zone.Village && r < (meadowy > 0.62 ? 0.32 : 0.012))
           objects.push({ kind: 'tallgrass', x, y, v: Math.floor(hash2(x, y, seed + 92) * 1000) });
+        else if (z === Zone.Meadow && t !== Terrain.Path && valueNoise(x / 5, y / 5, seed + 120) > 0.58 && r < 0.6)
+          // Drifts of wildflowers on Starlight Hill.
+          objects.push({ kind: 'flowers', x, y, v: Math.floor(hash2(x, y, seed + 121) * 1000) });
         else if ((t === Terrain.Sand || t === Terrain.Path) && r < 0.018) objects.push({ kind: 'pebbles', x, y, v: Math.floor(hash2(x, y, seed + 93) * 1000) });
         else if (t === Terrain.Forest && r < 0.025) objects.push({ kind: 'mushroom', x, y, v: Math.floor(hash2(x, y, seed + 94) * 1000) });
         else if (t === Terrain.Forest && r > 0.996 && free(x, y, 2, 1)) addObject('log', x, y, 2, 1);
@@ -1076,6 +1089,7 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
     level,
     falls,
     quarry,
+    greenhouse,
   };
 }
 
@@ -1084,6 +1098,8 @@ export function isFarmable(map: WorldMap, x: number, y: number): boolean {
   if (x < 0 || y < 0 || x >= map.w || y >= map.h) return false;
   const i = y * map.w + x;
   if (map.zone[i] !== Zone.Farm || map.solid[i]) return false;
+  const g = map.greenhouse;
+  if (x === g.x + 4 && y === g.y + g.h - 1) return false;
   const t = map.terrain[i];
   return t === Terrain.Grass || t === Terrain.Path;
 }

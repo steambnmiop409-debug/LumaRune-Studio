@@ -15,10 +15,10 @@ import {
   type WorldObject,
 } from '@lumina/core';
 import { Sprites } from '../art/Sprites';
-import { CHAR_H, CHAR_W } from '../art/sprites/character';
 import { CROP_H, CROP_W } from '../art/sprites/crops';
 import type { SeasonLook } from '../art/sprites/nature';
-import { Lighting, ambientColor, darkness, type Light } from './Lighting';
+import { actorFrame, actorPos, drawActor } from './actors';
+import { Lighting, ShadowLayer, ambientColor, darkness, sunAt, type Beam, type Light, type Sun } from './Lighting';
 import { Particles } from './Particles';
 import { Critters } from './Critters';
 import { TerrainRenderer } from './TerrainRenderer';
@@ -59,6 +59,8 @@ export interface ViewInput {
   nodes: Record<number, string>;
   /** Absolute game minute (day × 1440 + minute), for machine timers. */
   now: number;
+  /** The farm glasshouse has been restored. */
+  greenhouse: boolean;
 }
 
 interface Drawable {
@@ -76,6 +78,7 @@ export class WorldView {
   readonly critters = new Critters();
   readonly weatherFx = new WeatherFx();
   private lighting = new Lighting();
+  private shadows = new ShadowLayer();
   camX = 0;
   camY = 0;
   time = 0;
@@ -131,8 +134,9 @@ export class WorldView {
     const objs = this.map.objects;
     const y0 = Math.floor(this.camY / TILE) - 2;
     const y1 = Math.floor((this.camY + vh) / TILE) + 4;
-    const x0 = Math.floor(this.camX / TILE) - 3;
-    const x1 = Math.floor((this.camX + vw) / TILE) + 3;
+    // Wide margins: low sun throws long shadows in from off-screen.
+    const x0 = Math.floor(this.camX / TILE) - 7;
+    const x1 = Math.floor((this.camX + vw) / TILE) + 7;
     // Objects are sorted by y — binary search the first row.
     let lo = 0;
     let hi = objs.length;
@@ -231,29 +235,21 @@ export class WorldView {
     const lit = this.dark > 0.22;
     const lights: Light[] = [];
     const nightOverlays: Array<[HTMLCanvasElement, number, number]> = [];
+    const sun = sunAt(input.minute, input.weather.kind);
+    const shadows = this.shadows;
+    shadows.begin(vw, vh, sun);
 
     // 1. Terrain.
     this.terrain.draw(ctx, cx, cy, vw, vh, this.time);
-
-    // 2. Water sparkles.
     const tx0 = Math.floor(cx / TILE);
     const ty0 = Math.floor(cy / TILE);
     const tx1 = Math.ceil((cx + vw) / TILE);
     const ty1 = Math.ceil((cy + vh) / TILE);
-    ctx.fillStyle = this.dark > 0.5 ? '#c8d8ff' : '#f4fdff';
-    for (let ty = ty0; ty <= ty1; ty++)
-      for (let tx = tx0; tx <= tx1; tx++) {
-        const t = map.terrain[ty * map.w + tx];
-        if (t === undefined || !isWater(t)) continue;
-        const ph = hash2(tx, ty, 5);
-        const k = Math.floor(this.time * 1.3 + ph * 10);
-        if (hash2(tx, ty, k) < 0.045) {
-          const sx = tx * TILE + Math.floor(hash2(tx, ty, k + 1) * 14) - cx;
-          const sy = ty * TILE + Math.floor(hash2(tx, ty, k + 2) * 14) - cy;
-          ctx.fillRect(sx, sy, 2, 1);
-          if (hash2(tx, ty, k + 3) < 0.4) ctx.fillRect(sx + 3, sy + 1, 1, 1);
-        }
-      }
+
+    // 2. The glasshouse floor (under the soil so tilled beds sit on it).
+    const gh = map.greenhouse;
+    const ghRuined = !input.greenhouse;
+    ctx.drawImage(Sprites.greenhouse('floor', ghRuined), (gh.x + 1) * TILE - cx, (gh.y + 1) * TILE - cy);
 
     // 3. Farm soil.
     const soilKeys = Object.keys(input.soil);
@@ -288,12 +284,14 @@ export class WorldView {
         // Wild trees stand a few pixels off the grid so groves never look planted; orchard rows stay neat.
         const jx = o.kind === 'fruittree' ? 0 : (o.v % 9) - 4;
         const jy = o.kind === 'fruittree' ? 0 : (Math.floor(o.v / 9) % 5) - 2;
-        // A broad canopy shadow cast a little to the lower right, plus a dark contact shadow at the trunk.
+        // Under an overcast sky a soft canopy pool; in sunshine the tree casts its real shape. Always a dark contact shadow at the trunk.
         const cw = Math.round(tree.img.width * (o.kind === 'pine' ? 0.3 : 0.38));
-        shadow(bx + 10 + jx, by + 12 + jy, cw, Math.max(4, Math.round(cw * 0.36)), 44);
+        const pool = Math.round(44 * (1 - Math.min(1, sun.k * 3)));
+        if (pool > 8) shadow(bx + 10 + jx, by + 12 + jy, cw, Math.max(4, Math.round(cw * 0.36)), pool);
         shadow(bx + 8 + jx, by + 14 + jy, 5, 2, 70);
         const sx = bx + 8 - tree.ax - cx + jx;
         const sy = by + 14 - tree.ay - cy + jy;
+        shadows.cast(tree.img, sx, sy, by + 14 + jy - cy);
         const sway = Math.round(Math.sin(this.time * 1.4 + o.x * 0.7 + o.y * 0.3) * wind * 1.3);
         // See-through canopy when the player walks behind it.
         const me = input.players[0];
@@ -334,6 +332,7 @@ export class WorldView {
         const bob = o.kind === 'buoy' ? Math.round(Math.sin(this.time * 1.6 + o.x) * 1.2) : 0;
         const ix = bx + Math.floor((w - img.width) / 2) - cx;
         const iy = by + h - img.height + (o.kind === 'tidepool' ? 2 : o.kind === 'buoy' ? 3 : 0) + bob - cy;
+        if (!flat && o.kind !== 'cave' && o.kind !== 'buoy') shadows.cast(img, ix, iy, by + h - 2 - cy);
         drawables.push({ y: flat ? by : by + h - 2, draw: () => ctx.drawImage(img, ix, iy) });
         if (o.kind === 'campfire') {
           lights.push({ x: bx + 8 - cx, y: by + 6 - cy, r: 70 + Math.sin(this.time * 9) * 4, color: '#ffb060', a: 0.95 });
@@ -361,6 +360,8 @@ export class WorldView {
           const frame = (o.kind === 'tallgrass' || o.kind === 'lilypad') && Math.sin(this.time * 1.7 + o.x * 0.8 + o.y) * wind > 0.15 ? 1 : 0;
           const img = Sprites.detail(o.kind, o.v, frame);
           const low = o.kind === 'pebbles' || o.kind === 'lilypad';
+          if (o.kind === 'mushroom' && lit) lights.push({ x: bx + 8 - cx, y: by + 10 - cy, r: 12, color: '#8af0d0', a: 0.45 + Math.sin(this.time * 1.3 + o.x) * 0.15 });
+          if (!low) shadows.cast(img, bx - cx, by + TILE - img.height - cy, by + 14 - cy, 0.8);
           drawables.push({ y: low ? by : by + 9, draw: () => ctx.drawImage(img, bx - cx, by + TILE - img.height - cy) });
           break;
         }
@@ -381,7 +382,10 @@ export class WorldView {
           const img = Sprites.detail(o.kind, o.v, frame);
           const w = (o.w ?? 1) * TILE;
           const flat = o.kind === 'picnic' || o.kind === 'flowerbed';
-          if (!flat) shadow(bx + w / 2, by + 14, w / 2 - 2, 2);
+          if (!flat) {
+            shadow(bx + w / 2, by + 14, w / 2 - 2, 2);
+            if (o.kind !== 'boat') shadows.cast(img, bx + Math.floor((w - img.width) / 2) - cx, by + TILE - img.height - cy, by + 14 - cy);
+          }
           drawables.push({ y: flat ? by + 2 : by + 14, draw: () => ctx.drawImage(img, bx + Math.floor((w - img.width) / 2) - cx, by + TILE - img.height + (flat ? 1 : 0) - cy) });
           if (o.kind === 'beehive' && Math.random() < 0.02 && !input.raining && this.dark < 0.3) this.particles.spawn({ x: bx + 8, y: by, vx: (Math.random() - 0.5) * 30, vy: -10, max: 1.5, color: '#f5d040' });
           break;
@@ -390,14 +394,16 @@ export class WorldView {
           const k = o.y * map.w + o.x;
           const mask = (this.fences.has(k - 1) ? 1 : 0) | (this.fences.has(k + 1) ? 2 : 0) | (this.fences.has(k - map.w) ? 4 : 0) | (this.fences.has(k + map.w) ? 8 : 0);
           const img = Sprites.fence(mask);
+          shadows.cast(img, bx - cx, by + TILE - img.height - cy, by + 14 - cy);
           drawables.push({ y: by + 12, draw: () => ctx.drawImage(img, bx - cx, by + TILE - img.height - cy) });
           break;
         }
         case 'lamp': {
           const img = Sprites.lamp(lit);
           shadow(bx + 8, by + 14, 4, 1.5);
+          shadows.cast(img, bx + 2 - cx, by + TILE - img.height - cy, by + 14 - cy);
           drawables.push({ y: by + 14, draw: () => ctx.drawImage(img, bx + 2 - cx, by + TILE - img.height - cy) });
-          if (lit) lights.push({ x: bx + 8 - cx, y: by + TILE - 34 + 7 - cy, r: 48, color: '#ffcf80' });
+          if (lit) lights.push({ x: bx + 8 - cx, y: by + TILE - 34 + 7 - cy, r: 48, color: '#ffcf80', a: 0.93 + Math.sin(this.time * 7.3 + o.x * 3.1) * 0.05 + Math.sin(this.time * 13 + o.y) * 0.02 });
           break;
         }
         case 'fountain': {
@@ -410,18 +416,21 @@ export class WorldView {
         case 'stump': {
           const img = o.kind === 'bush' ? Sprites.bush(o.v, season) : o.kind === 'rock' ? Sprites.rock(o.v) : Sprites.stump();
           shadow(bx + 8, by + 14, 7, 2);
+          shadows.cast(img, bx + 8 - Math.floor(img.width / 2) - cx, by + TILE - img.height + 1 - cy, by + 14 - cy);
           drawables.push({ y: by + 14, draw: () => ctx.drawImage(img, bx + 8 - Math.floor(img.width / 2) - cx, by + TILE - img.height + 1 - cy) });
           break;
         }
         case 'flowerpot':
         case 'crate': {
           const img = o.kind === 'flowerpot' ? Sprites.flowerpot(o.v) : Sprites.crate();
+          shadows.cast(img, bx - cx, by + TILE - img.height - cy, by + 14 - cy);
           drawables.push({ y: by + 14, draw: () => ctx.drawImage(img, bx - cx, by + TILE - img.height - cy) });
           break;
         }
         case 'board': {
           const img = Sprites.board(input.boardFresh);
           shadow(bx + 8, by + 14, 9, 2);
+          shadows.cast(img, bx + 8 - Math.floor(img.width / 2) - cx, by + TILE - img.height + 1 - cy, by + 14 - cy);
           drawables.push({ y: by + 14, draw: () => ctx.drawImage(img, bx + 8 - Math.floor(img.width / 2) - cx, by + TILE - img.height + 1 - cy) });
           break;
         }
@@ -429,6 +438,7 @@ export class WorldView {
           const kind = o.kind as 'bench' | 'well' | 'sign' | 'barrel' | 'bollard' | 'packbench' | 'mailbox';
           const img = Sprites.prop(kind);
           const w = (o.w ?? 1) * TILE;
+          shadows.cast(img, bx + Math.floor((w - img.width) / 2) - cx, by + (o.h ?? 1) * TILE - img.height - cy, by + (o.h ?? 1) * TILE - 2 - cy);
           drawables.push({ y: by + (o.h ?? 1) * TILE - 2, draw: () => ctx.drawImage(img, bx + Math.floor((w - img.width) / 2) - cx, by + (o.h ?? 1) * TILE - img.height - cy) });
         }
       }
@@ -439,7 +449,9 @@ export class WorldView {
       const spr = Sprites.building(b);
       const sx = b.x * TILE + spr.ox;
       const sy = (b.y + b.h) * TILE - spr.img.height + spr.oy;
-      if (sx - cx > vw || sy - cy > vh || sx + spr.img.width - cx < 0 || sy + spr.img.height - cy < -40) continue;
+      const reach = shadows.active ? 140 : 0;
+      if (sx - cx > vw + reach || sy - cy > vh || sx + spr.img.width - cx < -reach || sy + spr.img.height - cy < -40) continue;
+      shadows.cast(spr.img, sx - cx, sy - cy, (b.y + b.h) * TILE - 1 - cy);
       ctx.fillStyle = 'rgba(24,30,64,0.18)';
       ctx.fillRect(sx + 2 - cx, (b.y + b.h) * TILE - cy, spr.img.width - 4, 3);
       // Walking behind a building fades it so the player never disappears.
@@ -464,8 +476,34 @@ export class WorldView {
       }
     }
 
+    // The glasshouse: back wall behind the bed, roof and front wall over it (fading while you're inside).
+    {
+      const back = Sprites.greenhouse('back', ghRuined);
+      const shell = Sprites.greenhouse('shell', ghRuined);
+      const gx = gh.x * TILE - cx;
+      const backY = (gh.y + 1) * TILE - back.height - cy;
+      const shellY = (gh.y + gh.h) * TILE - shell.height - cy;
+      const me = input.players[0];
+      const inside = me && me.x > gh.x * TILE && me.x < (gh.x + gh.w) * TILE && me.y > (gh.y + 1) * TILE && me.y < (gh.y + gh.h) * TILE;
+      if (gx < vw + 160 && gx + back.width > -160 && shellY < vh && backY + shell.height > -40) {
+        // Only the brick and frame of the back wall throw a real shadow; the glass lets the light through.
+        shadows.cast(back, gx, backY, (gh.y + 1) * TILE - 1 - cy);
+        drawables.push({ y: (gh.y + 1) * TILE - 1, draw: () => ctx.drawImage(back, gx, backY) });
+        drawables.push({
+          y: (gh.y + gh.h) * TILE - 1,
+          draw: () => {
+            if (inside) ctx.globalAlpha = 0.55;
+            ctx.drawImage(shell, gx, shellY);
+            ctx.globalAlpha = 1;
+          },
+        });
+        // Grow lamps glow under the glass after dark.
+        if (lit && input.greenhouse) for (let i = 0; i < 3; i++) lights.push({ x: gx + 32 + i * 40, y: (gh.y + 3) * TILE - cy, r: 44, color: '#ffe8c8', a: 0.8 });
+      }
+    }
+
     // Lighthouse beams.
-    const beams: Array<{ x: number; y: number; angle: number; len: number; spread: number }> = [];
+    const beams: Beam[] = [];
     {
       const lhb = map.buildings.find((b) => b.kind === 'lighthouse')!;
       const spr = Sprites.building(lhb);
@@ -479,9 +517,21 @@ export class WorldView {
       const k = Number(key);
       const x = k % map.w;
       const y = (k - x) / map.w;
-      if (x < tx0 - 1 || x > tx1 + 1 || y < ty0 - 1 || y > ty1 + 2) continue;
+      // Giant crops are drawn from their top-left tile, so look a little further up and left.
+      if (x < tx0 - 3 || x > tx1 + 1 || y < ty0 - 3 || y > ty1 + 2) continue;
       const crop = input.soil[k].crop;
       if (!crop) continue;
+      if (crop.giant !== undefined) {
+        // One big sprite for the whole 3×3 patch, drawn from its top-left tile.
+        if (crop.giant !== k) continue;
+        const img = Sprites.giantCrop(crop.id);
+        const gx = x * TILE + 24 - Math.floor(img.width / 2) - cx;
+        const gy = (y + 3) * TILE - img.height - 1 - cy;
+        shadow(x * TILE + 24, (y + 3) * TILE - 4, 22, 5, 60);
+        shadows.cast(img, gx, gy, (y + 3) * TILE - 4 - cy);
+        drawables.push({ y: (y + 2) * TILE + 12, draw: () => ctx.drawImage(img, gx, gy) });
+        continue;
+      }
       const def = getCrop(crop.id);
       const step = cropStep(crop);
       let track = this.cropSteps.get(k);
@@ -496,6 +546,7 @@ export class WorldView {
       const sy = y * TILE + 13 - (CROP_H - 3) - cy;
       // Gentle sway for tall plants in the wind.
       const sway = step >= 5 && (def.form === 'stalk' || def.form === 'grain' || def.form === 'tall') ? Math.round(Math.sin(this.time * 1.8 + x * 0.9) * input.weather.wind * 1.2) : 0;
+      if (step >= 3 || crop.dead) shadows.cast(img, sx, sy, y * TILE + 13 - cy);
       drawables.push({
         y: y * TILE + 12,
         draw: () => {
@@ -532,6 +583,7 @@ export class WorldView {
       }
       if (SPRINKLERS.has(p.kind)) {
         const img = Sprites.sprinkler(Number(p.kind.slice(-1)) as 1 | 2 | 3);
+        shadows.cast(img, bx - cx, by - cy, by + 13 - cy);
         drawables.push({ y: by + 12, draw: () => ctx.drawImage(img, bx - cx, by - cy) });
         continue;
       }
@@ -545,6 +597,7 @@ export class WorldView {
       else if (p.kind === 'harvester') state = Math.floor(this.time * 2) % 4;
       const img = Sprites.machine(p.kind, p.id, state);
       shadow(bx + 8, by + 14, 6, 2);
+      shadows.cast(img, bx + 8 - Math.floor(img.width / 2) - cx, by + TILE - img.height - cy, by + 14 - cy);
       drawables.push({
         y: by + 14,
         draw: () => {
@@ -573,6 +626,7 @@ export class WorldView {
       if (ox < cx - TILE || oy < cy - TILE || ox > cx + vw + TILE || oy > cy + vh + TILE) continue;
       const img = Sprites.outcrop(input.nodes[k], k);
       shadow(ox + 8, oy + 13, 7, 2);
+      shadows.cast(img, ox + 8 - Math.floor(img.width / 2) - cx, oy + TILE - img.height - cy, oy + 13 - cy);
       drawables.push({ y: oy + 12, draw: () => ctx.drawImage(img, ox + 8 - Math.floor(img.width / 2) - cx, oy + TILE - img.height - cy) });
     }
 
@@ -619,6 +673,7 @@ export class WorldView {
       const frame = kind === 'weed' && Math.sin(this.time * 1.8 + k) * wind > 0.15 ? 1 : 0;
       const img = Sprites.debris(kind, k, frame, season);
       if (kind !== 'weed') shadow(dx + 8, dy + 13, 6, 1.8);
+      else shadows.cast(img, dx - cx, dy + TILE - img.height - cy, dy + 14 - cy, 0.8);
       drawables.push({ y: dy + (kind === 'weed' ? 9 : 12), draw: () => ctx.drawImage(img, dx - cx, dy + TILE - img.height - cy) });
     }
 
@@ -647,63 +702,16 @@ export class WorldView {
 
     // Players.
     for (const pl of input.players) {
-      const sheet = Sprites.character(pl.look);
-      const frame = pl.moving ? Math.floor(pl.animT * 10) % 6 : 0;
-      const breathing = Math.floor((this.time + pl.x * 0.01) / 0.9) % 2 === 1;
-      const img = pl.swing
-        ? pl.swing.t < 0.35
-          ? sheet.raise[pl.dir]
-          : sheet.strike[pl.dir]
-        : pl.carrying > 0
-          ? sheet.carry[pl.dir][pl.moving ? frame : 0]
-          : pl.moving
-            ? sheet.walk[pl.dir][frame]
-            : pl.blink
-              ? sheet.blink[pl.dir]
-              : breathing
-                ? sheet.breathe[pl.dir]
-                : sheet.idle[pl.dir];
-      const px = Math.round(pl.x - CHAR_W / 2 - cx);
-      const py = Math.round(pl.y - CHAR_H + 1 - cy);
+      const { img, frame } = actorFrame(pl, this.time);
+      const [px, py] = actorPos(pl, cx, cy);
       shadow(pl.x, pl.y, 5, 1.8);
-      drawables.push({
-        y: pl.y,
-        draw: () => {
-          const tool = pl.swing ? Sprites.icon(pl.swing.item) : null;
-          const toolPos = () => {
-            const t = pl.swing!.t;
-            const raise = t < 0.35 ? t / 0.35 : 1 - (t - 0.35) / 0.65;
-            switch (pl.dir) {
-              case 'down':
-                return [px + 5, py + 4 + Math.round((1 - raise) * 10) - 6];
-              case 'up':
-                return [px + 2, py - 6 + Math.round((1 - raise) * 4)];
-              case 'left':
-                return [px - 8 + Math.round((1 - raise) * 2), py + 2 + Math.round((1 - raise) * 8) - 4];
-              default:
-                return [px + 8 - Math.round((1 - raise) * 2), py + 2 + Math.round((1 - raise) * 8) - 4];
-            }
-          };
-          if (tool && pl.dir === 'up') {
-            const [tx, ty] = toolPos();
-            ctx.drawImage(tool, tx, ty);
-          }
-          ctx.drawImage(img, px, py);
-          if (tool && pl.dir !== 'up') {
-            const [tx, ty] = toolPos();
-            ctx.drawImage(tool, tx, ty);
-          }
-          if (pl.carrying > 0) {
-            const bob = pl.moving && (frame === 1 || frame === 4) ? 1 : 0;
-            const crate = Sprites.crate('#e8836b');
-            for (let i = 0; i < Math.min(pl.carrying, 4); i++) ctx.drawImage(crate, px, py - 11 - i * 9 + bob);
-          }
-        },
-      });
+      shadows.cast(img, px, py, pl.y - cy);
+      drawables.push({ y: pl.y, draw: () => drawActor(ctx, pl, img, frame, px, py) });
       if (lit) lights.push({ x: pl.x - cx, y: pl.y - 10 - cy, r: 40, color: '#ffe6b0', a: 0.55 });
     }
 
     drawables.push(...this.critters.groundDrawables(ctx, cx, cy));
+    shadows.composite(ctx);
     drawables.sort((a, b) => a.y - b.y);
     for (const d of drawables) d.draw();
     this.critters.drawAir(ctx, cx, cy);
@@ -726,9 +734,68 @@ export class WorldView {
       for (const [img, x, y] of nightOverlays) ctx.drawImage(img, x, y);
       ctx.globalAlpha = 1;
     }
+    this.waterLight(ctx, cx, cy, tx0, ty0, tx1, ty1, sun, lights, input);
     this.particles.draw(ctx, cx, cy, true);
 
-    // 7. Weather on top.
+    // 7. Weather on top, then the time-of-day grade over the whole world.
     this.weatherFx.draw(ctx, vw, vh, input.weather, input.raining, this.dark, cx, cy);
+    this.lighting.grade(ctx, vw, vh, sun, this.dark, input.weather.kind);
+  }
+
+  /**
+   * Light on water, drawn after the light map so it stays bright: sun glints (golden at the ends of
+   * the day, silver under the moon), and lamps, windows and fires trailing shimmering streaks.
+   */
+  private waterLight(ctx: CanvasRenderingContext2D, cx: number, cy: number, tx0: number, ty0: number, tx1: number, ty1: number, sun: Sun, lights: Light[], input: ViewInput) {
+    const map = this.map;
+    const frozen = seasonOf(input.day) === 3;
+    const wet = (wx: number, wy: number) => {
+      const t = map.terrain[Math.floor(wy / TILE) * map.w + Math.floor(wx / TILE)];
+      return t !== undefined && isWater(t) && !(frozen && t === Terrain.Pond);
+    };
+    ctx.globalCompositeOperation = 'lighter';
+    // Glints: denser and brighter in direct sun.
+    const density = sun.moon ? 0.012 + sun.k * 0.1 : 0.02 + sun.k * 0.1;
+    const color = sun.moon ? '#7888b8' : sun.warm > 0.3 ? '#d09050' : '#c8d8e0';
+    ctx.fillStyle = color;
+    ctx.globalAlpha = sun.moon ? 0.7 : 0.55 + sun.k;
+    for (let ty = ty0; ty <= ty1; ty++)
+      for (let tx = tx0; tx <= tx1; tx++) {
+        const t = map.terrain[ty * map.w + tx];
+        if (t === undefined || !isWater(t) || (frozen && t === Terrain.Pond)) continue;
+        const ph = hash2(tx, ty, 5);
+        const k = Math.floor(this.time * 1.3 + ph * 10);
+        if (hash2(tx, ty, k) < density) {
+          const sx = tx * TILE + Math.floor(hash2(tx, ty, k + 1) * 14) - cx;
+          const sy = ty * TILE + Math.floor(hash2(tx, ty, k + 2) * 14) - cy;
+          const life = (this.time * 1.3 + ph * 10) % 1;
+          const big = hash2(tx, ty, k + 3) < 0.35 && life > 0.25 && life < 0.6;
+          ctx.fillRect(sx, sy, 2, 1);
+          if (big) {
+            ctx.fillRect(sx - 1, sy, 4, 1);
+            ctx.fillRect(sx + 1, sy - 1, 1, 3);
+          } else if (hash2(tx, ty, k + 4) < 0.4) ctx.fillRect(sx + 3, sy + 1, 1, 1);
+        }
+      }
+    // Reflections of lights: broken horizontal dashes under each lamp that stands by the water.
+    if (this.dark > 0.25) {
+      for (const l of lights) {
+        if (l.r < 20) continue;
+        const reach = l.r * 1.5;
+        for (let dy = 4; dy < reach; dy += 2) {
+          const wx = l.x + cx;
+          const wy = l.y + cy + dy;
+          if (!wet(wx, wy)) continue;
+          const fall = 1 - dy / reach;
+          const wob = Math.sin(this.time * 2.6 + dy * 0.55 + l.x * 0.1) * (2 + dy * 0.05);
+          const len = Math.max(1, Math.round((2 + fall * 9) * (0.6 + 0.4 * Math.sin(this.time * 4 + dy))));
+          ctx.globalAlpha = this.dark * fall * 0.75 * (l.a ?? 1);
+          ctx.fillStyle = l.color;
+          ctx.fillRect(Math.round(l.x - len / 2 + wob), Math.round(l.y + dy), len, 1);
+        }
+      }
+    }
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
   }
 }

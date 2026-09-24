@@ -27,7 +27,9 @@ export type Sfx =
   | 'sparkle';
 
 export type Ambience = 'sea' | 'rain' | 'wind' | 'birds' | 'crickets';
-export type Track = 'title' | 'day' | 'evening' | 'night' | 'rain';
+/** Music: the title theme, a day theme for each season, evening, night, rain and the mine. */
+export type Track = 'title' | 'spring' | 'summer' | 'autumn' | 'winter' | 'evening' | 'night' | 'rain' | 'mine';
+export const SEASON_TRACK: readonly Track[] = ['spring', 'summer', 'autumn', 'winter'];
 
 const SFX_VARIANTS: Partial<Record<Sfx, number>> = { step_grass: 4, step_path: 4, step_wood: 3, hoe: 3, harvest: 2, pop: 3 };
 
@@ -40,8 +42,10 @@ export class AudioManager {
   private musicBus!: GainNode;
   private ambBus!: GainNode;
   private amb = new Map<Ambience, { src: AudioBufferSourceNode; gain: GainNode } | null>();
-  private music: { track: Track; src: AudioBufferSourceNode; gain: GainNode } | null = null;
+  private music: { track: Track; el: HTMLAudioElement; node: MediaElementAudioSourceNode; gain: GainNode } | null = null;
   private wantedTrack: Track | null = null;
+  /** Where each song was when it last faded out, so coming back to it picks up the tune. */
+  private resumeAt = new Map<Track, number>();
   volumes = { master: 0.8, music: 0.55, sfx: 0.8, amb: 0.7 };
 
   constructor(private base = './audio/') {
@@ -166,29 +170,40 @@ export class AudioManager {
     if (cur) cur.gain.gain.setTargetAtTime(level, this.ctx.currentTime, 1.2);
   }
 
+  /**
+   * Crossfades to a song. Songs are several minutes long, so they stream from a media element
+   * instead of being decoded into memory whole.
+   */
   playMusic(track: Track | null): void {
     this.wantedTrack = track;
     if (!this.ctx) return;
     if (this.music?.track === track) return;
     const old = this.music;
     if (old) {
+      this.resumeAt.set(old.track, old.el.currentTime);
       old.gain.gain.setTargetAtTime(0, this.ctx.currentTime, 1.5);
-      old.src.stop(this.ctx.currentTime + 6);
+      setTimeout(() => {
+        old.el.pause();
+        old.node.disconnect();
+        old.el.removeAttribute('src');
+        old.el.load();
+      }, 7000);
     }
     this.music = null;
     if (!track) return;
-    void this.load(`music/${track}.ogg`).then((buf) => {
-      if (!buf || !this.ctx || this.wantedTrack !== track) return;
-      const src = this.ctx.createBufferSource();
-      src.buffer = buf;
-      src.loop = true;
-      const gain = this.ctx.createGain();
-      gain.gain.value = 0;
-      src.connect(gain);
-      gain.connect(this.musicBus);
-      src.start();
-      gain.gain.setTargetAtTime(1, this.ctx.currentTime, 2);
-      this.music = { track, src, gain };
-    });
+    const el = new Audio();
+    el.loop = true;
+    el.preload = 'auto';
+    el.src = `${this.base}music/${track}.ogg`;
+    const from = this.resumeAt.get(track);
+    if (from) el.addEventListener('loadedmetadata', () => (el.currentTime = from % (el.duration || Infinity)), { once: true });
+    const node = this.ctx.createMediaElementSource(el);
+    const gain = this.ctx.createGain();
+    gain.gain.value = 0;
+    node.connect(gain);
+    gain.connect(this.musicBus);
+    void el.play().catch(() => {});
+    gain.gain.setTargetAtTime(1, this.ctx.currentTime, 2);
+    this.music = { track, el, node, gain };
   }
 }

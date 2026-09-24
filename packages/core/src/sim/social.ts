@@ -1,6 +1,6 @@
 import { CROPS } from '../data/crops';
-import { FORAGE, ORCHARD_FRUIT, getItem } from '../data/items';
-import { NPCS, NPC_BY_ID } from '../data/npcs';
+import { FORAGE, ORCHARD_FRUIT, getItem, parseArtisan } from '../data/items';
+import { NPCS, NPC_BY_ID, type GiftReaction, type NpcDef } from '../data/npcs';
 import { addItem, canFit, countItem, removeItem } from '../inventory/inventory';
 import type { Rng } from '../math/rng';
 import type { Friendship, PlayerState, WorldState } from '../state/types';
@@ -48,22 +48,42 @@ export function talk(ctx: SimContext, p: PlayerState, npcId: string): null {
   return null;
 }
 
+/** Item kinds a villager will accept as a gift. */
+export const GIFTABLE = new Set(['produce', 'forage', 'artisan', 'gem']);
+
+/** How a villager reacts to a gift, and what they say. */
+export function giftReaction(npc: NpcDef, itemId: string): { reaction: GiftReaction; text: string; handmade: boolean } {
+  const plain = (id: string): GiftReaction | null => (npc.loves.includes(id) ? 'loved' : npc.likes.includes(id) ? 'liked' : npc.dislikes.includes(id) ? 'disliked' : null);
+  const art = parseArtisan(itemId);
+  if (!art) {
+    const reaction = plain(itemId) ?? (getItem(itemId).kind === 'gem' ? 'liked' : 'neutral');
+    return { reaction, text: npc.lines[reaction], handmade: false };
+  }
+  // Handmade goods: the kind of good decides, a favourite ingredient makes anything but a disliked kind a treasure.
+  const byType = npc.artisan[art.type] ?? 'liked';
+  const fromFav = !!art.source && plain(art.source) === 'loved';
+  const reaction: GiftReaction = byType === 'disliked' ? 'disliked' : fromFav ? 'loved' : byType;
+  const srcName = art.source ? getItem(art.source).name.replace(/^과수원 /, '') : '';
+  const text = byType !== 'disliked' && fromFav ? npc.lines.favSource.replace('{src}', srcName) : (npc.lines.made[art.type] ?? (reaction === 'disliked' ? npc.lines.disliked : npc.lines.handmade));
+  return { reaction, text, handmade: true };
+}
+
 export function gift(ctx: SimContext, p: PlayerState, npcId: string, slot: number): string | null {
   const { state } = ctx;
   const npc = NPC_BY_ID.get(npcId)!;
   const stack = p.inv[slot];
   if (!stack) return null;
-  const kind = getItem(stack.id).kind;
-  if (kind !== 'produce' && kind !== 'forage') return `${npc.name}에게는 작물이나 채집물을 선물할 수 있어요.`;
+  if (!GIFTABLE.has(getItem(stack.id).kind)) return `${npc.name}에게는 작물·채집물·가공품·보석을 선물할 수 있어요.`;
   const f = friendship(state, npcId);
   if (f.gifted === state.clock.day) return `${npc.name}에게는 오늘 이미 선물했어요.`;
-  const reaction = npc.loves.includes(stack.id) ? 'loved' : npc.likes.includes(stack.id) ? 'liked' : npc.dislikes.includes(stack.id) ? 'disliked' : 'neutral';
-  const gain = { loved: 80, liked: 45, neutral: 20, disliked: -20 }[reaction] + (stack.q ?? 1) * 4;
+  const { reaction, text, handmade } = giftReaction(npc, stack.id);
+  // Handmade gifts count for more: time and care went into them.
+  const gain = { loved: 80, liked: 45, neutral: 20, disliked: -20 }[reaction] + (stack.q ?? 1) * 4 + (handmade && reaction !== 'disliked' ? 20 : 0);
   f.points = Math.max(0, Math.min(MAX_HEARTS * POINTS_PER_HEART, f.points + gain));
   f.gifted = state.clock.day;
   stack.qty -= 1;
   if (stack.qty <= 0) p.inv[slot] = null;
-  ctx.emit({ t: 'dialogue', npc: npcId, text: npc.lines[reaction], hearts: hearts(f), gift: reaction }, p.id);
+  ctx.emit({ t: 'dialogue', npc: npcId, text, hearts: hearts(f), gift: reaction }, p.id);
   ctx.touchPlayer(p.id);
   return null;
 }

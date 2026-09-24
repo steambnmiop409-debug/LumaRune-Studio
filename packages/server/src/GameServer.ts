@@ -20,6 +20,14 @@ import {
   departShip,
   generateWorld,
   getCrop,
+  mineFloor,
+  rideLift,
+  repairGreenhouse,
+  tidyGreenhouse,
+  newSoil,
+  newCrop,
+  enterMine,
+  leaveMine,
   interact,
   makeSave,
   migrateSave,
@@ -154,6 +162,8 @@ export class GameServer {
         return;
       }
       if (this.map?.seed !== this.state.seed) this.map = generateWorld(this.state.seed);
+      // Older farms may have soil or debris where the glasshouse now stands.
+      tidyGreenhouse(this.state, this.map);
       this.slot = slot;
     }
     const state = this.state!;
@@ -241,6 +251,12 @@ export class GameServer {
       case 'craft':
         fail(craft(ctx, p, String(msg.recipe)));
         break;
+      case 'lift':
+        fail(rideLift(ctx, p, msg.floor | 0));
+        break;
+      case 'repair':
+        fail(repairGreenhouse(ctx, p));
+        break;
       case 'chest':
         if (Number.isInteger(msg.slot) && msg.slot >= 0 && (msg.from === 'inv' || msg.from === 'chest')) fail(chestMove(ctx, p, msg.id | 0, msg.from, msg.slot));
         break;
@@ -267,7 +283,8 @@ export class GameServer {
     const tx = Math.floor(x / TILE);
     const ty = Math.floor(y / TILE);
     const tooFar = Math.hypot(x - p.x, y - p.y) > MAX_MOVE_STEP;
-    const blocked = tx < 0 || ty < 0 || tx >= map.w || ty >= map.h || map.solid[ty * map.w + tx] === 1;
+    const grid = p.floor ? mineFloor(this.state!.seed, p.floor) : map;
+    const blocked = tx < 0 || ty < 0 || tx >= grid.w || ty >= grid.h || grid.solid[ty * grid.w + tx] === 1;
     if (tooFar || blocked) return false;
     p.x = x;
     p.y = y;
@@ -286,6 +303,10 @@ export class GameServer {
       state.clock.day = Math.max(0, arg | 0);
       this.dirtySocial = true;
     }
+    else if (cmd === 'mine') {
+      if (arg) enterMine(this.ctx(), p, arg);
+      else leaveMine(this.ctx(), p);
+    } else if (cmd === 'deepest' && arg !== undefined) state.mine.deepest = Math.max(0, arg | 0);
     else if (cmd === 'tp' && arg !== undefined) {
       // arg encodes a tile: y * 1000 + x
       p.x = (arg % 1000) * TILE + TILE / 2;
@@ -315,6 +336,33 @@ export class GameServer {
         ['crop.tomato', 6, 2],
       ] as Array<[string, number, number?]>)
         addItem(p.inv, id, n, q);
+    } else if (cmd === 'greenhouse') {
+      // Dev: restore (1) or ruin (0) the glasshouse; 2 also fills its bed with ripe crops.
+      state.greenhouse = !!arg;
+      const g = this.map!.greenhouse;
+      if (arg === 2)
+        for (let y = g.y + 1; y < g.y + g.h - 1; y++)
+          for (let x = g.x + 1; x < g.x + g.w - 1; x++) {
+            const id = ['strawberry', 'tomato', 'sunflower', 'eggplant', 'lavender', 'blueberry', 'watermelon'][(x + y) % 7];
+            const k = y * this.map!.w + x;
+            state.soil[k] = { ...newSoil(), moisture: 80, dayMax: 80, crop: { ...newCrop(id, state.clock.day), growth: 99 } };
+            this.dirtySoil.add(k);
+          }
+      tidyGreenhouse(state, this.map!);
+      this.dirtyDebris = true;
+    } else if (cmd === 'giant' && arg !== undefined) {
+      // Dev: a ripe giant pumpkin whose top-left tile is arg (y * 1000 + x).
+      const x0 = arg % 1000;
+      const y0 = Math.floor(arg / 1000);
+      const anchor = y0 * this.map!.w + x0;
+      for (let dy = 0; dy < 3; dy++)
+        for (let dx = 0; dx < 3; dx++) {
+          const k = anchor + dy * this.map!.w + dx;
+          delete state.debris[k];
+          state.soil[k] = { ...newSoil(), crop: { ...newCrop('pumpkin', 0), growth: 99, giant: anchor } };
+          this.dirtySoil.add(k);
+        }
+      this.dirtyDebris = true;
     } else if (cmd === 'grow') {
       for (const s of Object.values(state.soil)) if (s.crop && !s.crop.dead) s.crop.growth = getCrop(s.crop.id).growDays;
       for (const k of Object.keys(state.soil)) this.dirtySoil.add(Number(k));
@@ -412,7 +460,7 @@ export class GameServer {
     }
     if (this.dirtyDebris) {
       this.dirtyDebris = false;
-      this.broadcast({ t: 'debris', debris: state.debris, nodes: state.nodes });
+      this.broadcast({ t: 'debris', debris: state.debris, nodes: state.nodes, mine: state.mine, greenhouse: state.greenhouse });
     }
     if (this.dirtySocial) {
       this.dirtySocial = false;
@@ -444,6 +492,7 @@ export class GameServer {
         moving: p.moving,
         carrying: p.carrying.length,
         held: p.inv[p.sel]?.id ?? null,
+        floor: p.floor,
       }));
     this.broadcast({
       t: 'tick',

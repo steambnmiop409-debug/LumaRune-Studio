@@ -1,6 +1,6 @@
 import type { ShopId } from '../data/shops';
 import type { Appearance } from '../player/appearance';
-import type { DeathReason, DebrisKind, Dir, Friendship, NodeKind, PlacedObject, PlayerState, ShipmentRecord, SoilState, VillageRequest, WorldState } from '../state/types';
+import type { DeathReason, DebrisKind, Dir, Friendship, MineState, NodeKind, PlacedObject, PlayerState, ShipmentRecord, SoilState, VillageRequest, WorldState } from '../state/types';
 import type { Clock } from '../time/calendar';
 import type { DayWeather } from '../weather/weather';
 
@@ -30,6 +30,10 @@ export type ClientMessage =
   | { t: 'sort' }
   | { t: 'craft'; recipe: string }
   | { t: 'chest'; id: number; from: 'inv' | 'chest'; slot: number }
+  /** Ride the lift at the mine entrance down to a floor. */
+  | { t: 'lift'; floor: number }
+  /** Pay to restore the farm glasshouse. */
+  | { t: 'repair' }
   | { t: 'debug'; cmd: string; arg?: number };
 
 export interface PlayerPublic {
@@ -43,6 +47,8 @@ export interface PlayerPublic {
   /** Number of crates carried (drawn above the head). */
   carrying: number;
   held: string | null;
+  /** Mine floor (0 = island). */
+  floor: number;
 }
 
 export interface DaySummary {
@@ -54,6 +60,8 @@ export interface DaySummary {
   weather: DayWeather;
   forecast: DayWeather;
   passedOut: boolean;
+  /** Crop id of a giant crop that swelled up overnight. */
+  giant?: string | null;
 }
 
 export type GameEvent =
@@ -61,8 +69,8 @@ export type GameEvent =
   | { t: 'openShop'; shop: ShopId; stock: string[] }
   | { t: 'openPacking' }
   | { t: 'sleepPrompt' }
-  | { t: 'fx'; kind: 'till' | 'water' | 'plant' | 'fert' | 'refill' | 'clear' | 'break' | 'chop' | 'mine' | 'load' | 'place' | 'pickup' | 'tonic'; x: number; y: number; by: string }
-  | { t: 'harvest'; x: number; y: number; cropId: string; q: number; qty: number; by: string }
+  | { t: 'fx'; kind: 'till' | 'water' | 'plant' | 'fert' | 'refill' | 'clear' | 'break' | 'chop' | 'mine' | 'load' | 'place' | 'pickup' | 'tonic' | 'ladder' | 'restore'; x: number; y: number; by: string; floor?: number }
+  | { t: 'harvest'; x: number; y: number; cropId: string; q: number; qty: number; by: string; giant?: boolean }
   | { t: 'shipLoaded'; crates: number; by: string }
   | { t: 'shipDeparted'; record: ShipmentRecord }
   | { t: 'shipArrived' }
@@ -76,7 +84,13 @@ export type GameEvent =
   | { t: 'crafted'; item: string; qty: number }
   | { t: 'openCraft' }
   | { t: 'openChest'; id: number }
-  | { t: 'saved' };
+  | { t: 'saved' }
+  /** The player was moved to another place (mine floor or back to the island). */
+  | { t: 'warp'; x: number; y: number; floor: number }
+  /** The lift at the mine entrance: floors it can go to. */
+  | { t: 'openLift'; floors: number[] }
+  /** The ruined glasshouse: show what restoring it costs. */
+  | { t: 'openRepair' };
 
 export type ServerMessage =
   | { t: 'saves'; slots: Array<SaveSlotInfo | null> }
@@ -87,7 +101,7 @@ export type ServerMessage =
   | { t: 'placed'; placed: PlacedObject[] }
   | { t: 'self'; player: PlayerState; gold: number; lifetime: number; discovered: string[] }
   | { t: 'social'; npcs: Record<string, Friendship>; forage: Record<number, string>; request: VillageRequest | null }
-  | { t: 'debris'; debris: Record<number, DebrisKind>; nodes: Record<number, NodeKind> }
+  | { t: 'debris'; debris: Record<number, DebrisKind>; nodes: Record<number, NodeKind>; mine: MineState; greenhouse: boolean }
   | { t: 'event'; e: GameEvent }
   /** Server rejected a move; snap the local player back here. */
   | { t: 'correct'; x: number; y: number }

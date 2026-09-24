@@ -3,6 +3,7 @@ import type { Rng } from '../math/rng';
 import type { DebrisKind, WorldState } from '../state/types';
 import { seasonOf } from '../time/calendar';
 import { Terrain, Zone } from '../world/tiles';
+import { onGreenhouse } from './greenhouse';
 import type { WorldMap } from '../world/types';
 
 /** Farm tiles that can hold debris: open farm grass, not the house path, nothing placed or tilled. */
@@ -11,6 +12,7 @@ function open(state: WorldState, map: WorldMap, k: number): boolean {
   if (state.soil[k] || state.debris[k]) return false;
   const x = k % map.w;
   const y = (k - x) / map.w;
+  if (onGreenhouse(map, x, y)) return false;
   if (Math.abs(x - map.spawn.x) <= 2 && Math.abs(y - map.spawn.y) <= 2) return false;
   return !state.placed.some((p) => p.x === x && p.y === y);
 }

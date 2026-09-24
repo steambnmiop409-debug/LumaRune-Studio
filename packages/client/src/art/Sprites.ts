@@ -1,4 +1,4 @@
-import { findCrop, getItem, isMachine, parseArtisan, type Appearance, type Building, type WeatherKind } from '@lumina/core';
+import { findCrop, getItem, isMachine, parseArtisan, type Appearance, type Building, type MineFloor, type MineTheme, type WeatherKind } from '@lumina/core';
 
 /** Colour of an artisan good's contents, from what it was made of. */
 const FORAGE_COLOR: Record<string, string> = {
@@ -24,6 +24,8 @@ import { forageGround, forageIcon, noticeBoard } from './sprites/forage';
 import * as landmarks from './sprites/landmarks';
 import { fieldStone, twig, weed } from './sprites/debris';
 import * as machines from './sprites/machines';
+import * as mine from './sprites/mine';
+import * as glass from './sprites/greenhouse';
 import { birch, broadleaf, cherry, conifer, shrub } from './sprites/foliage';
 import { Pix } from './Pix';
 import { pack as packColor } from './palette';
@@ -299,8 +301,8 @@ class SpriteCache {
       }
     });
   }
-  outcrop(kind: string, v: number) {
-    return this.get(`outcrop:${kind}:${v}`, () => machines.outcrop(kind, v));
+  outcrop(kind: string, v: number, tint?: string) {
+    return this.get(`outcrop:${kind}:${v}:${tint ?? ''}`, () => machines.outcrop(kind, v, tint));
   }
   board(fresh: boolean) {
     return this.get(`board:${fresh}`, () => noticeBoard(fresh));
@@ -341,6 +343,47 @@ class SpriteCache {
   }
   cursor(color: string) {
     return this.get(`cursor:${color}`, () => ui.cursorBrackets(color));
+  }
+  // ── The glasshouse and giant crops ──
+  greenhouse(part: 'back' | 'shell' | 'floor', ruined: boolean): HTMLCanvasElement {
+    return this.get(`greenhouse:${part}:${ruined}`, () => (part === 'back' ? glass.greenhouseBack(ruined) : part === 'shell' ? glass.greenhouseShell(ruined) : glass.greenhouseFloor(ruined)));
+  }
+  giantCrop(cropId: string): HTMLCanvasElement {
+    return this.get(`giant:${cropId}`, () => glass.giantCrop(cropId));
+  }
+  // ── The mine ──
+  mineFloor(f: MineFloor, seed: number) {
+    return this.get(`mine:floor:${seed}:${f.floor}`, () => mine.mineFloorCanvas(f, seed));
+  }
+  mineProp(kind: string, theme: MineTheme, v: number, frame = 0): HTMLCanvasElement {
+    return this.get(`mine:${kind}:${theme}:${kind === 'torch' || kind === 'vent' ? frame : 0}:${kind === 'torch' ? 0 : v}`, () => {
+      switch (kind) {
+        case 'torch':
+          return mine.torch(frame);
+        case 'beam':
+          return mine.beam(v);
+        case 'crystal':
+          return mine.crystal(theme, v);
+        case 'stalagmite':
+          return mine.stalagmite(theme, v);
+        case 'mushroom':
+          return mine.caveMushroom(theme, v);
+        case 'bones':
+          return mine.bones(v);
+        case 'icicle':
+          return mine.icicles(v);
+        case 'vent':
+          return mine.vent(frame, v);
+        case 'cart':
+          return machines.minecart(v);
+        case 'ladderUp':
+          return mine.ladderUp(theme);
+        case 'ladderDown':
+          return mine.ladderDown(theme);
+        default:
+          return props.crate();
+      }
+    });
   }
   pointer() {
     return this.get('pointer', ui.pointer);

@@ -227,11 +227,11 @@ const ORE: Record<string, { fleck: string[]; base: string }> = {
   gem: { fleck: ['#b890f0', '#80e0f0', '#ffffff'], base: '#a0988e' },
 };
 
-/** A faceted outcrop veined with its ore; `v` keeps every one unique. */
-export function outcrop(kind: string, v: number): HTMLCanvasElement {
+/** A faceted outcrop veined with its ore; `v` keeps every one unique. `tint` takes on the colour of the rock around it. */
+export function outcrop(kind: string, v: number, tint?: string): HTMLCanvasElement {
   const o = ORE[kind] ?? ORE.stone;
   const p = new Pix(18, 16);
-  const base = mix(o.base, '#b8b0a6', r(v, 1) * 0.4);
+  const base = mix(mix(o.base, '#b8b0a6', r(v, 1) * 0.4), tint ?? o.base, tint ? 0.5 : 0);
   const pal = [light(base, 2), light(base, 1), base, shade(base, 1), shade(base, 2)];
   const w = 7 + r(v, 2) * 1.5;
   const h = 6 + r(v, 3) * 1.5;
