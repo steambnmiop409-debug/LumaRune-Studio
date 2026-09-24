@@ -1,6 +1,6 @@
 import type { ShopId } from '../data/shops';
 import type { Appearance } from '../player/appearance';
-import type { DeathReason, Dir, PlacedObject, PlayerState, ShipmentRecord, SoilState, WorldState } from '../state/types';
+import type { DeathReason, Dir, Friendship, PlacedObject, PlayerState, ShipmentRecord, SoilState, VillageRequest, WorldState } from '../state/types';
 import type { Clock } from '../time/calendar';
 import type { DayWeather } from '../weather/weather';
 
@@ -26,6 +26,8 @@ export type ClientMessage =
   | { t: 'sleep' }
   | { t: 'cancelSleep' }
   | { t: 'pause'; on: boolean }
+  | { t: 'deliver' }
+  | { t: 'sort' }
   | { t: 'debug'; cmd: string; arg?: number };
 
 export interface PlayerPublic {
@@ -63,7 +65,11 @@ export type GameEvent =
   | { t: 'shipDeparted'; record: ShipmentRecord }
   | { t: 'shipArrived' }
   | { t: 'dayStart'; summary: DaySummary }
-  | { t: 'bought'; item: string; qty: number; gold: number };
+  | { t: 'bought'; item: string; qty: number; gold: number }
+  | { t: 'dialogue'; npc: string; text: string; hearts: number; gift?: 'loved' | 'liked' | 'neutral' | 'disliked' }
+  | { t: 'openBoard' }
+  | { t: 'forage'; x: number; y: number; item: string }
+  | { t: 'saved' };
 
 export type ServerMessage =
   | { t: 'saves'; slots: Array<SaveSlotInfo | null> }
@@ -73,6 +79,7 @@ export type ServerMessage =
   | { t: 'soil'; tiles: Array<[number, SoilState | null]> }
   | { t: 'placed'; placed: PlacedObject[] }
   | { t: 'self'; player: PlayerState; gold: number; lifetime: number; discovered: string[] }
+  | { t: 'social'; npcs: Record<string, Friendship>; forage: Record<number, string>; request: VillageRequest | null }
   | { t: 'event'; e: GameEvent }
   /** Server rejected a move; snap the local player back here. */
   | { t: 'correct'; x: number; y: number }

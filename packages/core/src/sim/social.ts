@@ -1,0 +1,138 @@
+import { CROPS } from '../data/crops';
+import { FORAGE, getItem } from '../data/items';
+import { NPCS, NPC_BY_ID } from '../data/npcs';
+import { addItem, canFit, countItem, removeItem } from '../inventory/inventory';
+import type { Rng } from '../math/rng';
+import type { Friendship, PlayerState, WorldState } from '../state/types';
+import { seasonOf } from '../time/calendar';
+import { TILE, Terrain, Zone } from '../world/tiles';
+import type { WorldMap } from '../world/types';
+import { allNpcPoses } from './npc';
+import type { SimContext } from './actions';
+
+export const MAX_HEARTS = 10;
+export const POINTS_PER_HEART = 100;
+
+export function friendship(state: WorldState, id: string): Friendship {
+  if (!state.npcs[id]) state.npcs[id] = { points: 0, talked: -1, gifted: -1 };
+  return state.npcs[id];
+}
+
+export const hearts = (f: Friendship) => Math.min(MAX_HEARTS, Math.floor(f.points / POINTS_PER_HEART));
+
+/** The villager standing at (or right next to) tile (x, y), if any. */
+export function npcAt(map: WorldMap, minute: number, x: number, y: number): string | null {
+  for (const p of allNpcPoses(map, minute)) {
+    const tx = p.x / TILE;
+    const ty = (p.y - 6) / TILE;
+    if (Math.abs(tx - (x + 0.5)) < 1.1 && Math.abs(ty - (y + 0.5)) < 1.3) return p.id;
+  }
+  return null;
+}
+
+export function talk(ctx: SimContext, p: PlayerState, npcId: string): null {
+  const { state } = ctx;
+  const npc = NPC_BY_ID.get(npcId)!;
+  const f = friendship(state, npcId);
+  const first = f.talked !== state.clock.day;
+  if (first) {
+    f.talked = state.clock.day;
+    f.points += 10;
+  }
+  const h = hearts(f);
+  const r = ctx.rng;
+  const raining = state.weather.kind === 'rain' || state.weather.kind === 'storm';
+  const pool = raining && r.chance(0.5) ? npc.lines.rain : h >= 6 ? npc.lines.close : h >= 3 ? [...npc.lines.friend, ...npc.lines.greet] : npc.lines.greet;
+  ctx.emit({ t: 'dialogue', npc: npcId, text: r.pick(pool), hearts: h }, p.id);
+  ctx.touchPlayer(p.id);
+  return null;
+}
+
+export function gift(ctx: SimContext, p: PlayerState, npcId: string, slot: number): string | null {
+  const { state } = ctx;
+  const npc = NPC_BY_ID.get(npcId)!;
+  const stack = p.inv[slot];
+  if (!stack) return null;
+  const kind = getItem(stack.id).kind;
+  if (kind !== 'produce' && kind !== 'forage') return `${npc.name}에게는 작물이나 채집물을 선물할 수 있어요.`;
+  const f = friendship(state, npcId);
+  if (f.gifted === state.clock.day) return `${npc.name}에게는 오늘 이미 선물했어요.`;
+  const reaction = npc.loves.includes(stack.id) ? 'loved' : npc.likes.includes(stack.id) ? 'liked' : npc.dislikes.includes(stack.id) ? 'disliked' : 'neutral';
+  const gain = { loved: 80, liked: 45, neutral: 20, disliked: -20 }[reaction] + (stack.q ?? 1) * 4;
+  f.points = Math.max(0, Math.min(MAX_HEARTS * POINTS_PER_HEART, f.points + gain));
+  f.gifted = state.clock.day;
+  stack.qty -= 1;
+  if (stack.qty <= 0) p.inv[slot] = null;
+  ctx.emit({ t: 'dialogue', npc: npcId, text: npc.lines[reaction], hearts: hearts(f), gift: reaction }, p.id);
+  ctx.touchPlayer(p.id);
+  return null;
+}
+
+export function pickForage(ctx: SimContext, p: PlayerState, x: number, y: number): string | null {
+  const key = y * ctx.map.w + x;
+  const item = ctx.state.forage[key];
+  if (!item) return null;
+  if (!canFit(p.inv, item, 1)) return '가방이 가득 찼어요.';
+  addItem(p.inv, item, 1);
+  delete ctx.state.forage[key];
+  ctx.emit({ t: 'forage', x, y, item }, 'all');
+  ctx.touchPlayer(p.id);
+  return null;
+}
+
+export function deliverRequest(ctx: SimContext, p: PlayerState): string | null {
+  const req = ctx.state.request;
+  if (!req || req.done) return '오늘의 의뢰가 없어요.';
+  if (countItem(p.inv, req.item) < req.qty) return `${getItem(req.item).name} ${req.qty}개가 필요해요.`;
+  removeItem(p.inv, req.item, req.qty);
+  ctx.state.gold += req.reward;
+  req.done = true;
+  const f = friendship(ctx.state, req.npc);
+  f.points = Math.min(MAX_HEARTS * POINTS_PER_HEART, f.points + 60);
+  const npc = NPC_BY_ID.get(req.npc)!;
+  ctx.emit({ t: 'dialogue', npc: req.npc, text: `정말 고마워요! 약속한 ${req.reward.toLocaleString()}G예요.`, hearts: hearts(f), gift: 'loved' }, p.id);
+  ctx.emit({ t: 'toast', text: `의뢰 완료: ${npc.name} (+${req.reward.toLocaleString()}G)`, tone: 'good' }, p.id);
+  ctx.touchPlayer(p.id);
+  return null;
+}
+
+/** Morning: scatter fresh forage around the island. */
+export function spawnForage(state: WorldState, map: WorldMap, rng: Rng): void {
+  state.forage = {};
+  const season = seasonOf(state.clock.day);
+  const pools: Record<'beach' | 'forest' | 'meadow', string[]> = { beach: [], forest: [], meadow: [] };
+  for (const f of FORAGE) {
+    if (f.id === 'forage.morel' && season !== 0) continue;
+    if (f.id === 'forage.wildberry' && season !== 1 && season !== 2) continue;
+    if (f.id === 'forage.wildflower' && season === 3) continue;
+    pools[f.where].push(f.id);
+  }
+  const want: Record<'beach' | 'forest' | 'meadow', number> = { beach: 7, forest: 7, meadow: 5 };
+  for (const where of ['beach', 'forest', 'meadow'] as const) {
+    if (!pools[where].length) continue;
+    let placed = 0;
+    for (let tries = 0; tries < 4000 && placed < want[where]; tries++) {
+      const x = rng.int(2, map.w - 3);
+      const y = rng.int(2, map.h - 3);
+      const i = y * map.w + x;
+      if (map.solid[i] || state.forage[i]) continue;
+      const t = map.terrain[i];
+      const ok = where === 'beach' ? t === Terrain.Sand && map.zone[i] === Zone.Beach : where === 'forest' ? t === Terrain.Forest : t === Terrain.Meadow;
+      if (!ok) continue;
+      state.forage[i] = rng.pick(pools[where]);
+      placed++;
+    }
+  }
+}
+
+/** Morning: a villager pins a new request to the notice board. */
+export function newRequest(state: WorldState, rng: Rng): void {
+  const season = seasonOf(state.clock.day);
+  const npc = rng.pick(NPCS);
+  const pool = CROPS.filter((c) => c.tier <= 2 && (c.temp[0] + c.temp[1]) / 2 > [10, 20, 12, 0][season] - 6 && (c.temp[0] + c.temp[1]) / 2 < [10, 20, 12, 0][season] + 8);
+  const useForage = rng.chance(0.35) || !pool.length;
+  const item = useForage ? rng.pick(FORAGE.filter((f) => f.id !== 'forage.morel')).id : `crop.${rng.pick(pool).id}`;
+  const unit = useForage ? getItem(item).price : CROPS.find((c) => `crop.${c.id}` === item)!.sellPrice;
+  const qty = useForage ? rng.int(2, 4) : rng.int(4, 10);
+  state.request = { npc: npc.id, item, qty, reward: Math.round((unit * qty * 1.7) / 10) * 10, day: state.clock.day, done: false };
+}

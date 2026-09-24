@@ -24,20 +24,45 @@ export class Screen {
     this.ctx = this.buffer.getContext('2d')!;
     this.resize();
     window.addEventListener('resize', () => this.resize());
+    // The exact device-pixel size of the canvas box (handles 125%/150% OS scaling without resampling).
+    if ('ResizeObserver' in window) {
+      const ro = new ResizeObserver((entries) => {
+        const box = entries[0].devicePixelContentBoxSize?.[0];
+        if (box) this.resize(box.inlineSize, box.blockSize);
+      });
+      try {
+        ro.observe(canvas, { box: 'device-pixel-content-box' });
+      } catch {
+        ro.observe(canvas);
+      }
+    }
   }
 
-  resize(): void {
+  private devSize: [number, number] | null = null;
+
+  resize(devW?: number, devH?: number): void {
     this.dpr = window.devicePixelRatio || 1;
-    const devW = Math.floor(window.innerWidth * this.dpr);
-    const devH = Math.floor(window.innerHeight * this.dpr);
+    if (devW && devH) this.devSize = [devW, devH];
+    else if (this.devSize && Math.abs(this.devSize[0] - window.innerWidth * this.dpr) < 2) [devW, devH] = this.devSize;
+    else {
+      devW = Math.round(window.innerWidth * this.dpr);
+      devH = Math.round(window.innerHeight * this.dpr);
+    }
     const auto = Math.max(1, Math.floor(Math.min(devW / BASE_W, devH / BASE_H)));
     this.scale = this.forcedScale > 0 ? Math.min(auto, this.forcedScale) : auto;
-    this.canvas.width = devW;
-    this.canvas.height = devH;
-    this.width = Math.ceil(devW / this.scale);
-    this.height = Math.ceil(devH / this.scale);
-    this.buffer.width = this.width;
-    this.buffer.height = this.height;
+    // Only touch the canvases when something changed (resizing clears them).
+    const w = Math.ceil(devW / this.scale);
+    const h = Math.ceil(devH / this.scale);
+    if (this.canvas.width !== devW || this.canvas.height !== devH) {
+      this.canvas.width = devW;
+      this.canvas.height = devH;
+    }
+    this.width = w;
+    this.height = h;
+    if (this.buffer.width !== w || this.buffer.height !== h) {
+      this.buffer.width = w;
+      this.buffer.height = h;
+    }
     this.ctx.imageSmoothingEnabled = false;
     this.out.imageSmoothingEnabled = false;
   }
@@ -48,9 +73,12 @@ export class Screen {
 
   /** Converts a DOM client coordinate into logical pixels. */
   toLogical(clientX: number, clientY: number): { x: number; y: number } {
+    const r = this.canvas.getBoundingClientRect();
+    const kx = this.canvas.width / (r.width || 1);
+    const ky = this.canvas.height / (r.height || 1);
     return {
-      x: Math.floor((clientX * this.dpr) / this.scale),
-      y: Math.floor((clientY * this.dpr) / this.scale),
+      x: Math.floor(((clientX - r.left) * kx) / this.scale),
+      y: Math.floor(((clientY - r.top) * ky) / this.scale),
     };
   }
 }

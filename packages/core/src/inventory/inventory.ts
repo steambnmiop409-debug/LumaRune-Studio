@@ -100,3 +100,28 @@ export function swapSlots(inv: Array<ItemStack | null>, a: number, b: number): v
   inv[a] = sb;
   inv[b] = sa;
 }
+
+const KIND_ORDER = ['tool', 'seed', 'fertilizer', 'tonic', 'placeable', 'crate', 'produce', 'forage', 'upgrade'];
+
+/** Tidies the backpack (the hotbar stays as the player arranged it): merges stacks, then orders by kind, name and quality. */
+export function sortBackpack(inv: Array<ItemStack | null>): void {
+  const items = inv.slice(HOTBAR_SIZE).filter((s): s is ItemStack => !!s);
+  for (let i = HOTBAR_SIZE; i < inv.length; i++) inv[i] = null;
+  const merged: ItemStack[] = [];
+  for (const s of items) {
+    const max = getItem(s.id).maxStack;
+    let left = s.qty;
+    for (const m of merged) {
+      if (!left) break;
+      if (sameStack(m, s.id, s.q) && m.water === undefined && m.qty < max) {
+        const n = Math.min(left, max - m.qty);
+        m.qty += n;
+        left -= n;
+      }
+    }
+    if (left) merged.push({ ...s, qty: left });
+  }
+  const rank = (s: ItemStack) => KIND_ORDER.indexOf(getItem(s.id).kind);
+  merged.sort((a, b) => rank(a) - rank(b) || a.id.localeCompare(b.id) || (b.q ?? 0) - (a.q ?? 0));
+  merged.forEach((s, i) => (inv[HOTBAR_SIZE + i] = s));
+}

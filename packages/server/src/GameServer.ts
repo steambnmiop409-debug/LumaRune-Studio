@@ -8,6 +8,8 @@ import {
   SHIP_DEPARTURE,
   TILE,
   advanceDay,
+  deliverRequest,
+  sortBackpack,
   applyPrecipitationHour,
   buy,
   createPlayer,
@@ -73,6 +75,7 @@ export class GameServer {
   private timeScale = 1;
   private dirtySoil = new Set<number>();
   private dirtyPlaced = false;
+  private dirtySocial = false;
   private dirtyPlayers = new Set<string>();
   private saving: Promise<void> = Promise.resolve();
 
@@ -139,12 +142,14 @@ export class GameServer {
         this.rng.state = this.state.rngState;
       } else if (msg.newGame) {
         this.rng = new Rng((Date.now() ^ (Math.random() * 1e9)) >>> 0);
-        this.state = createWorldState(this.opts.seed ?? DEFAULT_WORLD_SEED, this.rng);
+        const seed = this.opts.seed ?? DEFAULT_WORLD_SEED;
+        this.map = generateWorld(seed);
+        this.state = createWorldState(seed, this.rng, this.map);
       } else {
         session.link.send({ t: 'needCharacter', slot });
         return;
       }
-      this.map = generateWorld(this.state.seed);
+      if (this.map?.seed !== this.state.seed) this.map = generateWorld(this.state.seed);
       this.slot = slot;
     }
     const state = this.state!;
@@ -219,6 +224,14 @@ export class GameServer {
         break;
       case 'pack':
         fail(pack(ctx, p, msg.slot | 0, msg.qty | 0));
+        break;
+      case 'deliver':
+        fail(deliverRequest(ctx, p));
+        this.dirtySocial = true;
+        break;
+      case 'sort':
+        sortBackpack(p.inv);
+        this.dirtyPlayers.add(p.id);
         break;
       case 'sleep':
         p.sleeping = true;
@@ -324,6 +337,7 @@ export class GameServer {
     if (!wasDeparted && summary.shipment) this.emit({ t: 'shipDeparted', record: summary.shipment }, 'all');
     for (const k of changed) this.dirtySoil.add(k);
     this.dirtyPlaced = true;
+    this.dirtySocial = true;
     for (const p of Object.values(state.players)) this.dirtyPlayers.add(p.id);
     this.emit({ t: 'dayStart', summary }, 'all');
     // Everyone wakes up at home.
@@ -339,6 +353,7 @@ export class GameServer {
   }
 
   private emit(e: GameEvent, to: string | 'all') {
+    if (e.t === 'dialogue' || e.t === 'forage') this.dirtySocial = true;
     for (const s of this.sessions.values()) {
       if (!s.playerId) continue;
       if (to === 'all' || s.playerId === to) s.link.send({ t: 'event', e });
@@ -361,6 +376,10 @@ export class GameServer {
     if (this.dirtyPlaced) {
       this.dirtyPlaced = false;
       this.broadcast({ t: 'placed', placed: state.placed });
+    }
+    if (this.dirtySocial) {
+      this.dirtySocial = false;
+      this.broadcast({ t: 'social', npcs: state.npcs, forage: state.forage, request: state.request });
     }
     if (this.dirtyPlayers.size) {
       for (const s of this.sessions.values()) {
@@ -407,7 +426,7 @@ export class GameServer {
     this.state.rngState = this.rng.state;
     const file = makeSave(JSON.parse(JSON.stringify(this.state)));
     const slot = this.slot;
-    this.saving = this.saving.then(() => this.opts.store.save(slot, file)).catch(() => {});
+    this.saving = this.saving.then(() => this.opts.store.save(slot, file)).then(() => this.emit({ t: 'saved' }, 'all')).catch(() => {});
     return this.saving;
   }
 }

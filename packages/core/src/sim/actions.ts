@@ -11,6 +11,7 @@ import { seasonOf, weekdayOf } from '../time/calendar';
 import { TILE, isFreshWater } from '../world/tiles';
 import type { InteractKind, WorldMap } from '../world/types';
 import { canTill, newSoil, placedAt } from './world';
+import { gift, npcAt, pickForage, talk } from './social';
 
 /** Max distance (px) from the player's feet to a tile centre for tool use / interaction. */
 export const REACH_PX = 30;
@@ -76,6 +77,10 @@ export function useItem(ctx: SimContext, p: PlayerState, slot: number, x: number
   const def = getItem(stack.id);
   const key = y * map.w + x;
   const soil = state.soil[key];
+  if (def.kind === 'produce' || def.kind === 'forage') {
+    const npc = npcAt(map, state.clock.minute, x, y);
+    if (npc) return gift(ctx, p, npc, slot);
+  }
 
   switch (def.kind) {
     case 'tool': {
@@ -168,6 +173,7 @@ export function useItem(ctx: SimContext, p: PlayerState, slot: number, x: number
       break;
     }
     case 'produce':
+    case 'forage':
     case 'crate':
       return '포장대에서 출하 상자에 담아 배로 옮겨 주세요.';
     default:
@@ -220,6 +226,9 @@ export function shopStock(state: WorldState, shop: ShopId): string[] {
 export function interact(ctx: SimContext, p: PlayerState, x: number, y: number): Result {
   const { state, map } = ctx;
   if (!inReach(p, x, y, REACH_PX + 6)) return null;
+  const npc = npcAt(map, state.clock.minute, x, y);
+  if (npc) return talk(ctx, p, npc);
+  if (state.forage[y * map.w + x]) return pickForage(ctx, p, x, y);
   const kind = interactableAt(map, x, y);
   if (kind) {
     switch (kind) {
@@ -241,6 +250,9 @@ export function interact(ctx: SimContext, p: PlayerState, x: number, y: number):
         return loadShip(ctx, p);
       case 'bed':
         ctx.emit({ t: 'sleepPrompt' }, p.id);
+        return null;
+      case 'board':
+        ctx.emit({ t: 'openBoard' }, p.id);
         return null;
       case 'well': {
         const slot = p.inv.findIndex((s) => s && getItem(s.id).tool === 'can');
@@ -299,12 +311,13 @@ export function nearPacking(map: WorldMap, p: PlayerState): boolean {
 /** Packs up to 30 produce of one kind & quality from `slot` into a crate the player then carries. */
 export function pack(ctx: SimContext, p: PlayerState, slot: number, qty: number): Result {
   const s = p.inv[slot];
-  if (!s || getItem(s.id).kind !== 'produce') return '작물만 상자에 담을 수 있어요.';
+  const kind = s ? getItem(s.id).kind : null;
+  if (!s || (kind !== 'produce' && kind !== 'forage')) return '작물이나 채집물만 상자에 담을 수 있어요.';
   if (!nearPacking(ctx.map, p)) return '포장대 앞에서 담아 주세요.';
   if (p.carrying.length >= (p.cart ? CART_CAPACITY : 1)) return '더 들 수 없어요. 먼저 배에 실어 주세요.';
   if (countItem(p.inv, 'crate') < 1) return '빈 출하 상자가 없어요. 등불 공방에서 살 수 있어요.';
   const n = Math.max(1, Math.min(qty | 0, CRATE_CAPACITY, s.qty));
-  const cropId = getItem(s.id).cropId!;
+  const cropId = kind === 'forage' ? s.id : getItem(s.id).cropId!;
   const q = s.q ?? 1;
   takeFromSlot(p.inv, slot, n);
   removeItem(p.inv, 'crate', 1);

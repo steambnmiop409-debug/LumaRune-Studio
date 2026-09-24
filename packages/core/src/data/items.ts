@@ -1,6 +1,6 @@
 import { CROPS, type CropDef } from './crops';
 
-export type ItemKind = 'seed' | 'produce' | 'tool' | 'fertilizer' | 'tonic' | 'placeable' | 'crate' | 'upgrade';
+export type ItemKind = 'seed' | 'produce' | 'forage' | 'tool' | 'fertilizer' | 'tonic' | 'placeable' | 'crate' | 'upgrade';
 export type ToolKind = 'hoe' | 'can' | 'scythe';
 export type FertilizerKind = 'basic' | 'quality' | 'speed' | 'speed2' | 'retain';
 export type PlaceableKind = 'sprinkler1' | 'sprinkler2' | 'sprinkler3' | 'cover';
@@ -10,7 +10,7 @@ export interface ItemDef {
   name: string;
   nameEn: string;
   kind: ItemKind;
-  /** Shop buy price (0 = not sold). */
+  /** Shop buy price (0 = not sold). For forage: base sell price. */
   price: number;
   maxStack: number;
   desc: string;
@@ -70,6 +70,18 @@ const BASE_ITEMS: ItemDef[] = [
   { id: 'upgrade.cart', name: '손수레', nameEn: 'Handcart', kind: 'upgrade', price: 2500, maxStack: 1, desc: '포장된 상자를 한 번에 4개까지 옮길 수 있다.' },
 ];
 
+/** Wild things found around the island each morning. */
+export const FORAGE: Array<{ id: string; name: string; nameEn: string; price: number; desc: string; where: 'beach' | 'forest' | 'meadow' }> = [
+  { id: 'forage.shell', name: '조개껍데기', nameEn: 'Seashell', price: 30, desc: '파도가 밀어 올린 분홍빛 조개껍데기.', where: 'beach' },
+  { id: 'forage.seaglass', name: '바다유리', nameEn: 'Sea Glass', price: 70, desc: '파도에 둥글게 닳은 초록 유리 조각. 빛에 비추면 반짝인다.', where: 'beach' },
+  { id: 'forage.driftwood', name: '유목', nameEn: 'Driftwood', price: 20, desc: '바다를 떠돌다 온 매끈한 나뭇가지.', where: 'beach' },
+  { id: 'forage.chanterelle', name: '꾀꼬리버섯', nameEn: 'Chanterelle', price: 90, desc: '살구 향이 나는 노란 버섯. 숲 그늘에서 자란다.', where: 'forest' },
+  { id: 'forage.morel', name: '곰보버섯', nameEn: 'Morel', price: 140, desc: '봄 숲에서만 드물게 보이는 귀한 버섯.', where: 'forest' },
+  { id: 'forage.pinecone', name: '솔방울', nameEn: 'Pinecone', price: 15, desc: '송진 냄새가 은은한 솔방울.', where: 'forest' },
+  { id: 'forage.wildflower', name: '들꽃 다발', nameEn: 'Wildflowers', price: 40, desc: '별빛 언덕에서 꺾은 작은 들꽃들.', where: 'meadow' },
+  { id: 'forage.wildberry', name: '산딸기', nameEn: 'Wild Berries', price: 55, desc: '햇볕에 잘 익은 새콤한 산딸기.', where: 'meadow' },
+];
+
 function seedItem(c: CropDef): ItemDef {
   const sapling = c.form === 'tree';
   return {
@@ -97,7 +109,17 @@ function produceItem(c: CropDef): ItemDef {
   };
 }
 
-export const ITEMS: readonly ItemDef[] = [...BASE_ITEMS, ...CROPS.map(seedItem), ...CROPS.map(produceItem)];
+export const ITEMS: readonly ItemDef[] = [
+  ...BASE_ITEMS,
+  ...CROPS.map(seedItem),
+  ...CROPS.map(produceItem),
+  ...FORAGE.map((f) => ({ id: f.id, name: f.name, nameEn: f.nameEn, kind: 'forage' as const, price: f.price, maxStack: 99, desc: f.desc })),
+];
+
+/** Item id of something packed in a crate (crop id or forage id). */
+export function cargoItemId(cargoId: string): string {
+  return cargoId.startsWith('forage.') ? cargoId : `crop.${cargoId}`;
+}
 
 const ITEM_BY_ID = new Map(ITEMS.map((i) => [i.id, i]));
 

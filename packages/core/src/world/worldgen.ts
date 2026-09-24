@@ -41,6 +41,7 @@ const SOLID_OBJECTS: ReadonlySet<ObjectKind> = new Set<ObjectKind>([
   'scarecrow',
   'beehive',
   'telescope',
+  'board',
 ]);
 
 export function isSolidObject(kind: ObjectKind): boolean {
@@ -458,6 +459,8 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
   addObject('bench', plaza.x + plaza.w - 6, plaza.y + plaza.h - 2);
   addObject('sign', gateEast.x + 2, gateEast.y - 2);
   addObject('sign', plaza.x - 3, plaza.y + 4);
+  addObject('board', plaza.x + 4, plaza.y + 1);
+  interactables.push({ kind: 'board', x: plaza.x + 4, y: plaza.y + 1 });
   addObject('bench', meadowC.x + 2, meadowC.y - 1, 2, 1);
 
   // ── 11. Nature: trees, bushes, rocks, flowers, reeds ───────────────────

@@ -20,3 +20,6 @@ export * from './state/save';
 export * from './protocol/messages';
 export * from './sim/world';
 export * from './sim/actions';
+export * from './data/npcs';
+export * from './sim/npc';
+export * from './sim/social';

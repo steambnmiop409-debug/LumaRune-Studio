@@ -126,6 +126,11 @@ export class ClientWorld {
         this.discovered = new Set(msg.discovered);
         break;
       }
+      case 'social':
+        this.state.npcs = msg.npcs;
+        this.state.forage = msg.forage;
+        this.state.request = msg.request;
+        break;
       case 'event':
         this.events.push(msg.e);
         break;

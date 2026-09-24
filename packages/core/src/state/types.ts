@@ -122,4 +122,26 @@ export interface WorldState {
   discovered: string[];
   /** True once today's ship has departed. */
   departedToday: boolean;
+  /** Friendship with each villager. */
+  npcs: Record<string, Friendship>;
+  /** Wild items lying on the island today, keyed by tile index. */
+  forage: Record<number, string>;
+  /** Today's request on the plaza notice board. */
+  request: VillageRequest | null;
+}
+
+export interface Friendship {
+  points: number;
+  /** Day index of the last chat / gift (once per day each). */
+  talked: number;
+  gifted: number;
+}
+
+export interface VillageRequest {
+  npc: string;
+  item: string;
+  qty: number;
+  reward: number;
+  day: number;
+  done: boolean;
 }

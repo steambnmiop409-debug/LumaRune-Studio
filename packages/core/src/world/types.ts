@@ -39,7 +39,8 @@ export type ObjectKind =
   | 'scarecrow'
   | 'beehive'
   | 'picnic'
-  | 'telescope';
+  | 'telescope'
+  | 'board';
 
 /** Decorative / blocking object anchored at a tile. */
 export interface WorldObject {
@@ -67,7 +68,7 @@ export interface Building {
   v: number;
 }
 
-export type InteractKind = 'seedShop' | 'toolShop' | 'ship' | 'packing' | 'bed' | 'well';
+export type InteractKind = 'seedShop' | 'toolShop' | 'ship' | 'packing' | 'bed' | 'well' | 'board';
 
 export interface Interactable {
   kind: InteractKind;

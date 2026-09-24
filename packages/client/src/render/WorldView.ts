@@ -48,6 +48,10 @@ export interface ViewInput {
   shipPresent: boolean;
   cargo: number;
   players: ViewPlayer[];
+  /** Forage lying on the ground, by tile key. */
+  forage: Record<number, string>;
+  /** Today's notice-board request is still open. */
+  boardFresh: boolean;
 }
 
 interface Drawable {
@@ -326,6 +330,12 @@ export class WorldView {
           drawables.push({ y: by + 14, draw: () => ctx.drawImage(img, bx - cx, by + TILE - img.height - cy) });
           break;
         }
+        case 'board': {
+          const img = Sprites.board(input.boardFresh);
+          shadow(bx + 8, by + 14, 9, 2);
+          drawables.push({ y: by + 14, draw: () => ctx.drawImage(img, bx + 8 - Math.floor(img.width / 2) - cx, by + TILE - img.height + 1 - cy) });
+          break;
+        }
         default: {
           const kind = o.kind as 'bench' | 'well' | 'sign' | 'barrel' | 'bollard' | 'packbench' | 'mailbox';
           const img = Sprites.prop(kind);
@@ -460,6 +470,29 @@ export class WorldView {
           lights.push({ x: sx + 20, y: sy + 89, r: 34, color: '#ffd98a', a: alpha });
         }
       }
+    }
+
+    // Forage: gentle glint so it reads as something to pick up.
+    for (const key of Object.keys(input.forage)) {
+      const k = Number(key);
+      const fx = (k % map.w) * TILE;
+      const fy = Math.floor(k / map.w) * TILE;
+      if (fx < cx - TILE || fy < cy - TILE || fx > cx + vw + TILE || fy > cy + vh + TILE) continue;
+      const img = Sprites.forage(input.forage[k]);
+      const glint = (this.time * 0.6 + k * 0.137) % 3;
+      drawables.push({
+        y: fy + 8,
+        draw: () => {
+          ctx.drawImage(img, fx - cx, fy + TILE - img.height + 1 - cy);
+          if (glint < 0.25) {
+            const gx = fx + 11 - cx;
+            const gy = fy - 1 - cy;
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(gx, gy - 1, 1, 3);
+            ctx.fillRect(gx - 1, gy, 3, 1);
+          }
+        },
+      });
     }
 
     // Players.

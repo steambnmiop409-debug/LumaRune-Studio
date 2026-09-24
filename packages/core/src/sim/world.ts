@@ -4,6 +4,7 @@ import { recoverMarket, settleCargo } from '../economy/market';
 import { evaporate, growCropOneDay } from '../farming/growth';
 import { addItem, emptyInventory } from '../inventory/inventory';
 import { Rng } from '../math/rng';
+import { newRequest, spawnForage } from './social';
 import type { Appearance } from '../player/appearance';
 import type { DaySummary } from '../protocol/messages';
 import type { PlayerState, ShipmentRecord, SoilState, WorldState } from '../state/types';
@@ -12,17 +13,17 @@ import { generateDayWeather, isPrecipitating, isWet } from '../weather/weather';
 import { TILE } from '../world/tiles';
 import type { WorldMap } from '../world/types';
 
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 export const START_GOLD = 500;
 export const MAX_STAMINA = 100;
 
-export function createWorldState(seed: number, rng: Rng): WorldState {
+export function createWorldState(seed: number, rng: Rng, map?: WorldMap): WorldState {
   const weather = generateDayWeather(rng, 0, null);
   // The very first morning is always fair — a gentle welcome to the island.
   weather.kind = 'clear';
   weather.precipStart = weather.precipEnd = 0;
   const forecast = generateDayWeather(rng, 1, weather.kind);
-  return {
+  const state: WorldState = {
     version: SAVE_VERSION,
     seed,
     clock: { day: 0, minute: DAY_START },
@@ -40,7 +41,14 @@ export function createWorldState(seed: number, rng: Rng): WorldState {
     players: {},
     discovered: [],
     departedToday: false,
+    npcs: {},
+    forage: {},
+    request: null,
   };
+  if (map) spawnForage(state, map, rng);
+  newRequest(state, rng);
+  state.rngState = rng.state;
+  return state;
 }
 
 export function createPlayer(id: string, name: string, farmName: string, look: Appearance, map: WorldMap): PlayerState {
@@ -179,6 +187,8 @@ export function advanceDay(state: WorldState, map: WorldMap, rng: Rng, passedOut
   state.ship.present = true;
   state.departedToday = false;
   changed.push(...runSprinklers(state, map));
+  spawnForage(state, map, rng);
+  newRequest(state, rng);
 
   for (const p of Object.values(state.players)) {
     p.stamina = passedOut ? Math.round(p.maxStamina * 0.7) : p.maxStamina;

@@ -1,4 +1,5 @@
 import {
+  cargoItemId,
   HOTBAR_SIZE,
   SHIP_DEPARTURE,
   WEATHER_NAME,
@@ -297,12 +298,12 @@ export class Hud {
     crates.slice(0, 4).forEach((c, i) => {
       const cx = x + 6 + i * 30;
       ctx.drawImage(Sprites.crate('#e8836b'), cx, y + 17);
-      ctx.drawImage(Sprites.icon(`crop.${c.cropId}`), cx + 12, y + 14);
+      ctx.drawImage(Sprites.icon(cargoItemId(c.cropId)), cx + 12, y + 14);
       drawText(ctx, String(c.qty), cx + 29, y + 24, { font: 'small', color: P.white, outline: P.ink, align: 'right' });
     });
     if (crates.length === 1) {
       const c = crates[0];
-      drawText(ctx, `${findCrop(c.cropId)?.name} ★${c.q}`, x + 46, y + 20, { font: 'small' });
+      drawText(ctx, `${getItem(cargoItemId(c.cropId)).name} ★${c.q}`, x + 46, y + 20, { font: 'small' });
     }
   }
 

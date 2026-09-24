@@ -10,7 +10,10 @@ export interface SaveFile {
 type Migration = (state: Record<string, unknown>) => Record<string, unknown>;
 
 /** Migrations from version N to N+1. Add one whenever WorldState changes shape. */
-const MIGRATIONS: Record<number, Migration> = {};
+const MIGRATIONS: Record<number, Migration> = {
+  // v2: villagers, forage and the notice board.
+  1: (s) => ({ ...s, npcs: {}, forage: {}, request: null }),
+};
 
 export function makeSave(state: WorldState): SaveFile {
   return { version: SAVE_VERSION, savedAt: Date.now(), state };

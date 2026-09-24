@@ -3,6 +3,7 @@ import { buildingSprite, windmillSails, type BuildingSprite } from './sprites/bu
 import { characterSheet, type CharacterSheet } from './sprites/character';
 import { cropSprite, deadCropSprite, produceIcon, seedIcon } from './sprites/crops';
 import { ITEM_ICONS } from './sprites/items';
+import { forageGround, forageIcon, noticeBoard } from './sprites/forage';
 import { blossomTree, bush, flowers, oakTree, palmTree, pineTree, reeds, rock, stump, type SeasonLook, type TreeSprite } from './sprites/nature';
 import * as props from './sprites/props';
 import * as details from './sprites/details';
@@ -166,10 +167,18 @@ class SpriteCache {
       const def = getItem(id);
       if (def.kind === 'seed') return seedIcon(findCrop(def.cropId!)!);
       if (def.kind === 'produce') return produceIcon(findCrop(def.cropId!)!);
+      if (def.kind === 'forage') return forageIcon(id) ?? props.crate();
       if (def.placeable?.startsWith('sprinkler')) return props.sprinkler(Number(def.placeable.slice(-1)) as 1 | 2 | 3);
       const make = ITEM_ICONS[id];
       return make ? make() : props.crate();
     });
+  }
+
+  board(fresh: boolean) {
+    return this.get(`board:${fresh}`, () => noticeBoard(fresh));
+  }
+  forage(id: string) {
+    return this.get(`forageG:${id}`, () => forageGround(id) ?? this.icon(id));
   }
 
   panel(w: number, h: number, tone: 'paper' | 'dark' = 'paper') {

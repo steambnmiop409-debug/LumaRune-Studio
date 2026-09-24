@@ -15,7 +15,7 @@ export class Backdrop {
     weather.kind = 'clear';
     weather.precipStart = weather.precipEnd = 0;
     weather.wind = 0.3;
-    this.input = { minute: 1112, day: 14, weather, raining: false, soil: {}, placed: [], shipPresent: true, cargo: 6, players: [] };
+    this.input = { minute: 1112, day: 14, weather, raining: false, soil: {}, placed: [], shipPresent: true, cargo: 6, players: [], forage: {}, boardFresh: false };
     void DEFAULT_WORLD_SEED;
   }
 

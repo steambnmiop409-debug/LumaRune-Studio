@@ -7,3 +7,4 @@ dist-*/
 coverage/
 saves/
 apps/desktop/out/
+packages/desktop/release/

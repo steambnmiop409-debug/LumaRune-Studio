@@ -1,4 +1,5 @@
 import {
+  cargoItemId,
   CATEGORY_LABEL,
   CART_CAPACITY,
   CRATE_CAPACITY,
@@ -195,6 +196,10 @@ export class JournalPanel implements Panel {
     const c = ui.ctx;
     const p = this.world.self;
     drawText(c, '가방', lx + 10, py + 6, { font: 'bold' });
+    if (ui.button({ x: lx + 96, y: py + 3, w: 38, h: 15 }, '정리')) {
+      this.send({ t: 'sort' });
+      this.picked = -1;
+    }
     drawText(c, '클릭해서 집고 다른 칸에 놓아요. 윗 두 줄이 핫바.', lx + 10, py + 20, { font: 'small', color: P.inkSoft });
     const cols = 5;
     const gx = lx + 12;
@@ -319,8 +324,8 @@ export class JournalPanel implements Panel {
     if (rec) {
       rec.lines.slice(0, 11).forEach((l, i) => {
         const yy = py + 26 + i * 18;
-        c.drawImage(Sprites.icon(`crop.${l.cropId}`), rx + 12, yy);
-        drawText(c, `${findCrop(l.cropId)?.name} ★${l.q} ×${l.qty}`, rx + 32, yy + 3, { font: 'small' });
+        c.drawImage(Sprites.icon(cargoItemId(l.cropId)), rx + 12, yy);
+        drawText(c, `${getItem(cargoItemId(l.cropId)).name} ★${l.q} ×${l.qty}`, rx + 32, yy + 3, { font: 'small' });
         drawText(c, formatGold(l.gold), rx + pw - 12, yy + 3, { font: 'small', align: 'right' });
       });
     }
@@ -493,8 +498,9 @@ export class PackingPanel implements Panel {
     drawText(c, '포장대', x + 12, y + 8, { font: 'title' });
     drawText(c, '같은 작물·같은 품질을 한 상자에 최대 30개까지 담아요.', x + 12, y + 28, { font: 'small', color: P.inkSoft });
     if (closeButton(ui, x + W - 18, y + 5)) this.closed = true;
-    const produce = p.inv.map((s, i) => [s, i] as const).filter(([s]) => s && getItem(s.id).kind === 'produce');
-    if (!produce.length) drawText(c, '가방에 수확한 작물이 없어요.', x + 12, y + 50, { color: P.inkSoft });
+    const packable = (id: string) => getItem(id).kind === 'produce' || getItem(id).kind === 'forage';
+    const produce = p.inv.map((s, i) => [s, i] as const).filter(([s]) => s && packable(s.id));
+    if (!produce.length) drawText(c, '가방에 작물이나 채집물이 없어요.', x + 12, y + 50, { color: P.inkSoft });
     produce.forEach(([s, i], k) => {
       const sx = x + 12 + (k % 8) * 26;
       const sy = y + 46 + Math.floor(k / 8) * 26;
@@ -508,8 +514,10 @@ export class PackingPanel implements Panel {
     const cap = p.cart ? CART_CAPACITY : 1;
     drawText(c, `빈 상자 ${crates}개 · 들고 있는 상자 ${p.carrying.length}/${cap}`, x + 12, y + H - 58, { font: 'small' });
     const s = this.sel >= 0 ? p.inv[this.sel] : null;
-    if (s && getItem(s.id).kind === 'produce') {
-      const cr = findCrop(getItem(s.id).cropId!)!;
+    if (s && packable(s.id)) {
+      const def = getItem(s.id);
+      const cid = def.kind === 'forage' ? s.id : def.cropId!;
+      const cr = { id: cid, name: def.name };
       const by = y + H - 40;
       icon2x(c, Sprites.icon(s.id), x + 12, by - 6);
       drawText(c, `${cr.name} ★${s.q ?? 1}`, x + 50, by - 4, { font: 'bold' });
@@ -593,8 +601,8 @@ export class DaySummaryPanel implements Panel {
     }
     lines.slice(0, 7).forEach((l, i) => {
       if (this.t < 0.3 + i * 0.25) return;
-      c.drawImage(Sprites.icon(`crop.${l.cropId}`), x + 16, yy);
-      drawText(c, `${findCrop(l.cropId)?.name} ★${l.q} × ${l.qty}`, x + 36, yy + 3, { font: 'small' });
+      c.drawImage(Sprites.icon(cargoItemId(l.cropId)), x + 16, yy);
+      drawText(c, `${getItem(cargoItemId(l.cropId)).name} ★${l.q} × ${l.qty}`, x + 36, yy + 3, { font: 'small' });
       drawText(c, formatGold(l.gold), x + W - 16, yy + 3, { font: 'small', align: 'right' });
       yy += 18;
     });

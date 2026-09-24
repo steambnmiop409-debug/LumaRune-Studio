@@ -12,6 +12,9 @@ import {
   isReady,
   seasonOf,
   cropStage,
+  allNpcPoses,
+  NPC_BY_ID,
+  npcAt,
   type Dir,
   type GameEvent,
   type InteractKind,
@@ -31,6 +34,7 @@ import { Hud } from '../ui/Hud';
 import { formatGold } from '../ui/kit';
 import { DaySummaryPanel, JournalPanel, PackingPanel, PauseMenu, ShopPanel, SleepDialog, type Panel } from '../ui/panels';
 import { TitleScene } from './TitleScene';
+import { BoardPanel, DialoguePanel } from '../ui/social';
 
 const SPEED = 88;
 const SWING_TIME = 0.32;
@@ -50,6 +54,7 @@ const INTERACT_LABEL: Record<InteractKind, string> = {
   packing: '포장대',
   bed: '잠자리에 들기',
   well: '우물에서 물 긷기',
+  board: '마을 게시판',
 };
 
 export class GameScene implements Scene {
@@ -74,6 +79,8 @@ export class GameScene implements Scene {
   private target = { x: 0, y: 0 };
   private time = 0;
   private cursorPulse = 0;
+  private useHeld = 0;
+  private npcAnim = new Map<string, number>();
 
   constructor(
     private conn: Connection,
@@ -284,7 +291,8 @@ export class GameScene implements Scene {
       else if (my) this.dir = my < 0 ? 'up' : 'down';
       if (mx && my && !(this.dir === 'left' || this.dir === 'right')) this.dir = my < 0 ? 'up' : 'down';
       const len = Math.hypot(mx, my);
-      const speed = SPEED * (self.carrying.length ? 0.8 : 1);
+      const run = input.isDown('run') && self.stamina > 0 ? 1.35 : 1;
+      const speed = SPEED * run * (self.carrying.length ? 0.8 : 1);
       const dx = (mx / len) * speed * dt;
       const dy = (my / len) * speed * dt;
       if (!this.blockedAt(this.px + dx, this.py)) this.px += dx;
@@ -292,7 +300,7 @@ export class GameScene implements Scene {
       this.animT += dt;
       this.stepT -= dt;
       if (this.stepT <= 0) {
-        this.stepT = 0.3;
+        this.stepT = 0.3 / run;
         this.footstep();
       }
     } else this.animT = 0;
@@ -301,7 +309,10 @@ export class GameScene implements Scene {
     const ui = game.ui;
     const useDown = (input.mousePressed[0] && !ui.hovering) || input.wasPressed('use');
     const interactDown = (input.mousePressed[2] && !ui.hovering) || input.wasPressed('interact');
+    const useHeld = (input.mouseDown[0] && !ui.hovering) || input.isDown('use');
+    this.useHeld = useHeld ? this.useHeld + dt : 0;
     if (useDown && !this.swing) this.useSelected();
+    else if (this.useHeld > 0.35 && !this.swing) this.useSelected();
     if (interactDown) {
       const cand = this.interactCandidate();
       const t = cand ?? this.target;
@@ -425,6 +436,21 @@ export class GameScene implements Scene {
         this.swing = null;
         audio.play('chime', { volume: 0.7 });
         break;
+      case 'dialogue':
+        audio.play('pop', { volume: 0.5, rate: 1.2 });
+        this.panel = new DialoguePanel(this.world, e.npc, e.text, e.gift);
+        if (e.gift === 'loved') for (let i = 0; i < 10; i++) ps.spawn({ kind: 'sparkle', x: this.px - 10 + Math.random() * 20, y: this.py - 30 + Math.random() * 10, vy: -14, max: 0.9, color: '#ff9ab0' });
+        break;
+      case 'openBoard':
+        this.open(new BoardPanel(this.world, (m) => this.send(m)));
+        break;
+      case 'forage':
+        this.pickups.push({ img: Sprites.icon(e.item), x: e.x * TILE + 8, y: e.y * TILE + 4, t: 0, label: '+1' });
+        audio.play('pop');
+        break;
+      case 'saved':
+        this.hud.toast('저장했어요', 'info');
+        break;
       case 'bought':
         audio.play('coin');
         this.hud.toast(`${getItem(e.item).name} ×${e.qty} 구매 (${formatGold(e.gold)})`, 'good', Sprites.icon(e.item));
@@ -486,6 +512,11 @@ export class GameScene implements Scene {
         blink: this.blinkT < 0,
       },
     ];
+    for (const n of allNpcPoses(world.map, minute)) {
+      const t = (this.npcAnim.get(n.id) ?? 0) + (n.moving ? 1 / 60 : 0);
+      this.npcAnim.set(n.id, t);
+      players.push({ id: n.id, look: NPC_BY_ID.get(n.id)!.look, x: Math.round(n.x), y: Math.round(n.y), dir: n.dir, moving: n.moving, animT: t, carrying: 0 });
+    }
     for (const o of world.others.values())
       players.push({ id: o.id, look: o.look, x: Math.round(o.rx), y: Math.round(o.ry), dir: o.dir, moving: o.moving, animT: o.animT, carrying: o.carrying, name: o.name });
     return {
@@ -498,6 +529,8 @@ export class GameScene implements Scene {
       shipPresent: world.shipPresent,
       cargo: world.cargo,
       players,
+      forage: world.state.forage,
+      boardFresh: !!world.state.request && !world.state.request.done,
     };
   }
 
@@ -515,6 +548,11 @@ export class GameScene implements Scene {
 
     // Other players' name tags.
     for (const o of world.others.values()) drawText(ctx, o.name, Math.round(o.rx - cx), Math.round(o.ry - 44 - cy), { font: 'small', color: P.paperLight, outline: P.ink, align: 'center' });
+
+    for (const p of input.players) {
+      const npc = NPC_BY_ID.get(p.id);
+      if (npc && Math.hypot(p.x - this.px, p.y - this.py) < 64) drawText(ctx, npc.name, p.x - cx, p.y - 44 - cy, { font: 'small', color: P.paperLight, outline: P.ink, align: 'center' });
+    }
 
     // Pickups flying to the player.
     for (const p of this.pickups) {
@@ -550,7 +588,19 @@ export class GameScene implements Scene {
       let label: string | null = null;
       let lx = 0;
       let ly = 0;
-      if (cand) {
+      const npcHere = npcAt(world.map, world.clock.minute, tx, ty);
+      const forageHere = world.state.forage[ty * world.map.w + tx];
+      if (npcHere) {
+        const heldKind = held ? getItem(held.id).kind : null;
+        const name = NPC_BY_ID.get(npcHere)!.name;
+        label = heldKind === 'produce' || heldKind === 'forage' ? `${name}와 대화 · 클릭: 선물` : `${name}와 대화`;
+        lx = tx * TILE + 8 - cx;
+        ly = ty * TILE - 30 - cy;
+      } else if (forageHere) {
+        label = `${getItem(forageHere).name} 줍기`;
+        lx = tx * TILE + 8 - cx;
+        ly = ty * TILE - 6 - cy;
+      } else if (cand) {
         label = cand.kind === 'ship' ? (self.carrying.length ? `상자 ${self.carrying.length}개 싣기` : world.shipPresent ? '화물선 (상자를 들고 오세요)' : '배는 내일 아침에') : INTERACT_LABEL[cand.kind];
         lx = cand.x * TILE + 8 - cx;
         ly = cand.y * TILE - 6 - cy;
