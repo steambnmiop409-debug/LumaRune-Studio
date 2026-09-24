@@ -6,7 +6,7 @@
  */
 import { hash2 } from '@lumina/core';
 import { hexToRgb, type RGB } from '../art/palette';
-import { drawText, measure } from '../engine/text';
+import { drawText, lineHeight, measure } from '../engine/text';
 
 const mix = (a: RGB, b: RGB, t: number): RGB => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 
@@ -192,11 +192,11 @@ export function logo(text: string, scale = 3): Logo {
   const hit = logos.get(key);
   if (hit) return hit;
   const tw = measure(text, 'title', true) + 3;
-  const th = 18;
+  const th = lineHeight('title') + 4;
   const small = document.createElement('canvas');
   small.width = tw;
   small.height = th;
-  drawText(small.getContext('2d')!, text, 1, 1, { font: 'title', color: '#ffffff', raw: true });
+  drawText(small.getContext('2d')!, text, 1, 2, { font: 'title', color: '#ffffff', raw: true });
   const raw = small.getContext('2d')!.getImageData(0, 0, tw, th).data;
   // Faux bold: every stroke one pixel wider, so the lettering reads as a chunky logo, not body text.
   const ink1 = (x: number, y: number) => x >= 0 && x < tw && raw[(y * tw + x) * 4 + 3] > 128;

@@ -113,6 +113,7 @@ export class GameScene implements Scene {
   /** Callers waiting on a save to reach the disk, and the corner indicator's remaining time. */
   private saveWaiters: Array<(ok: boolean) => void> = [];
   private saveShown = 0;
+  private fadeIn = 1;
   private readonly onHidden = () => {
     if (document.visibilityState === 'hidden') this.send({ t: 'save' });
   };
@@ -273,6 +274,7 @@ export class GameScene implements Scene {
   update(dt: number): void {
     this.time += dt;
     this.saveShown = Math.max(0, this.saveShown - dt);
+    this.fadeIn = Math.max(0, this.fadeIn - dt * 1.8);
     const game = this.game;
     const input = game.input;
     const world = this.world;
@@ -788,6 +790,15 @@ export class GameScene implements Scene {
   }
 
   render(ctx: CanvasRenderingContext2D): void {
+    this.renderScene(ctx);
+    // Fade in from the title's black.
+    if (this.fadeIn > 0) {
+      ctx.fillStyle = `rgba(10,8,20,${this.fadeIn})`;
+      ctx.fillRect(0, 0, this.game.screen.width, this.game.screen.height);
+    }
+  }
+
+  private renderScene(ctx: CanvasRenderingContext2D): void {
     const game = this.game;
     const { width: vw, height: vh } = game.screen;
     const ui = game.ui;

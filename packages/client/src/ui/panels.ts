@@ -404,7 +404,7 @@ export class JournalPanel implements Panel {
     y += 6;
     drawText(c, '좋아하는 것', x, y, { font: 'small', color: P.inkSoft });
     y += 13;
-    const liked = h >= 3 ? d.likes.slice(0, 5).map((id) => getItem(id).name).join(', ') : '조금 더 친해지면 알 수 있어요.';
+    const liked = h >= 3 ? d.likes.slice(0, 5).map((id) => tr(getItem(id).name)).join(', ') : tr('조금 더 친해지면 알 수 있어요.');
     for (const line of wrap(liked, cw, 'small')) {
       drawText(c, line, x, y, { font: 'small', color: h >= 3 ? P.ink : P.inkSoft });
       y += 12;

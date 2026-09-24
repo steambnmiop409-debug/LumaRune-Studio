@@ -79,8 +79,10 @@ export class TitleScene implements Scene {
     this.conn?.close();
   }
 
+  /** Runs `then` once the screen has faded to black (straight away if it already has). */
   private afterFade(then: () => void) {
     if (!this.leaving) this.leaving = { t: 0, then, done: false };
+    else if (this.leaving.done) then();
     else this.leaving.then = then;
   }
 
@@ -315,7 +317,7 @@ export class TitleScene implements Scene {
     const cardH = 52;
     const H = 34 + slots.length * (cardH + 6) + 30;
     const x = Math.round((vw - W) / 2);
-    const y = Math.round(Math.max(vh * 0.44, (vh - H) / 2 + 30));
+    const y = Math.round(Math.min(vh - H - 6, Math.max(vh * 0.44, (vh - H) / 2 + 30)));
     ui.panel({ x, y, w: W, h: H });
     drawText(ctx, '섬 고르기', x + 12, y + 8, { font: 'bold' });
     drawText(ctx, '진행 상황은 자동으로 저장돼요', x + W - 12, y + 10, { font: 'small', color: P.inkSoft, align: 'right' });
