@@ -30,12 +30,15 @@ const HEIGHT: Record<number, number> = {
 const C = (h: string) => pack(h);
 const SEA = ['#93dccf', '#72c8c8', '#56b0c4', '#4396bb', '#377ca3', '#2d648c', '#254f78'].map(C);
 const FRESH = ['#86d4c0', '#68bdb6', '#52a6ad', '#448ea2', '#3a7894'].map(C);
-const GRASS = ['#93c565', '#80b85b', '#6ea651', '#5d9449'].map(C);
-const FOREST = ['#679b52', '#578b4a', '#4a7b44', '#3e6a3e'].map(C);
-const MEADOW = ['#9ccc6c', '#8bc062', '#79b058', '#699f50'].map(C);
+const GRASS = ['#bce37a', '#a2d466', '#88c257', '#70ac4c', '#5a9544'].map(C);
+const FOREST = ['#94c466', '#7cb158', '#669c4d', '#538845', '#42723d'].map(C);
+const MEADOW = ['#c8eb84', '#b0dd70', '#96cc5f', '#7eb853', '#67a049'].map(C);
+const CLOVER = [C('#c8ec8a'), C('#9ad06a')];
+const DIRT = ['#d2ac7c', '#bd956a', '#a67f5a', '#8e6a4c'].map(C);
+const PATH_EDGE = C('#a8845c');
 const SAND = ['#f4e4b6', '#ebd6a2', '#dfc68f', '#d0b37c'].map(C);
 const WET_SAND = ['#d5ba8a', '#c9aa79'].map(C);
-const PATH = ['#d8b582', '#caa372', '#b99263', '#a57f55'].map(C);
+const PATH = ['#e6cb98', '#d8b683', '#c6a06f', '#b08a5d'].map(C);
 const COBBLE = ['#d6cdc0', '#cbc1b4', '#bfb5a9', '#b1a79c'].map(C);
 const MORTAR = C('#958980');
 const ROCK = ['#b1aaa1', '#9d968e', '#8a837d', '#77716c'].map(C);
@@ -82,19 +85,25 @@ function pieces(strokes: Stroke[]): Piece[] {
   });
 }
 
-/** Grass tuft pattern: 0 none, 1 bright blade, 2 dark root. */
-function tuft(wx: number, wy: number, seed: number): number {
-  const cx = Math.floor(wx / 6);
-  const cy = Math.floor(wy / 5);
-  if (hash2(cx, cy, seed) > 0.42) return 0;
-  const ox = cx * 6 + 1 + Math.floor(hash2(cx, cy, seed + 1) * 4);
-  const oy = cy * 5 + 1 + Math.floor(hash2(cx, cy, seed + 2) * 3);
+/**
+ * Clumps of 3-5 grass blades on a jittered grid; `density` 0..1 thins them out.
+ * Returns 0 none, 1 sunlit tip, 2 blade, 3 dark root.
+ */
+function blades(wx: number, wy: number, seed: number, density: number): number {
+  const CW = 7;
+  const CH = 6;
+  const cx = Math.floor(wx / CW);
+  const cy = Math.floor(wy / CH);
+  if (hash2(cx, cy, seed) > density) return 0;
+  const ox = cx * CW + 2 + Math.floor(hash2(cx, cy, seed + 1) * 3);
+  const oy = cy * CH + 4 + Math.floor(hash2(cx, cy, seed + 2) * 2);
   const dx = wx - ox;
-  const dy = wy - oy;
-  if (dy === 0 && (dx === -1 || dx === 1)) return 1;
-  if (dy === -1 && dx === 0 && hash2(cx, cy, seed + 3) < 0.5) return 1;
-  if (dy === 1 && dx === 0) return 2;
-  return 0;
+  const dy = oy - wy;
+  if (dx < -2 || dx > 2 || dy < 0) return 0;
+  const h = 1 + Math.floor(hash2(cx * 5 + dx, cy, seed + 3) * 3.4) - Math.abs(dx) * 0.6;
+  if (dy > h || h < 1) return 0;
+  if (dy === 0) return 3;
+  return dy >= Math.floor(h) ? 1 : 2;
 }
 
 /** Organic cobblestones from a jittered Voronoi grid. Returns -1 for mortar, else tone 0..3. */
@@ -290,7 +299,11 @@ export class TerrainRenderer {
     return t;
   }
 
+  /** Signed distance (px) from the last sampled pixel to the nearest road edge (negative inside). */
+  private roadD = 99;
+
   private terrainAtPixel(wx: number, wy: number, rivers: Piece[], roads: Piece[]): number {
+    this.roadD = 99;
     const tx = Math.floor(wx / TILE);
     const ty = Math.floor(wy / TILE);
     const raw = this.tileAt(tx, ty);
@@ -333,10 +346,11 @@ export class TerrainRenderer {
     }
     if (t === Terrain.Pond) return t;
     for (const p of roads) {
-      if (wx < p.x0 - 4 || wx > p.x1 + 4 || wy < p.y0 - 4 || wy > p.y1 + 4) continue;
-      if (strokeDistance(p.s, fxw, fyw) * TILE + wob * 0.7 < 0) return Terrain.Path;
+      if (wx < p.x0 - 8 || wx > p.x1 + 8 || wy < p.y0 - 8 || wy > p.y1 + 8) continue;
+      const d = strokeDistance(p.s, fxw, fyw) * TILE + wob * 0.7;
+      if (d < this.roadD) this.roadD = d;
     }
-    return t;
+    return this.roadD < 0 ? Terrain.Path : t;
   }
 
   private elevAt(wx: number, wy: number): number {
@@ -363,7 +377,12 @@ export class TerrainRenderer {
     const near = (list: Piece[]) => list.filter((p) => p.x1 >= x0 - 8 && p.x0 <= x0 + S + 8 && p.y1 >= y0 - 8 && p.y0 <= y0 + S + 8);
     const rivers = near(this.riverPieces);
     const roads = near(this.roadPieces);
-    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) types[y * S + x] = this.terrainAtPixel(x0 + x, y0 + y, rivers, roads);
+    const roadDist = new Float32Array(S * S);
+    for (let y = 0; y < S; y++)
+      for (let x = 0; x < S; x++) {
+        types[y * S + x] = this.terrainAtPixel(x0 + x, y0 + y, rivers, roads);
+        roadDist[y * S + x] = this.roadD;
+      }
 
     // Chamfer distance transforms: water→land and land→water (in pixels, capped).
     const INF = 255;
@@ -462,10 +481,25 @@ export class TerrainRenderer {
             case Terrain.Forest:
             case Terrain.Meadow: {
               const pal = t === Terrain.Grass ? GRASS : t === Terrain.Forest ? FOREST : MEADOW;
-              col = band(pal, 0.2 + macro * 0.45 + meso * 0.25, wx, wy);
-              const tf = tuft(wx, wy, seed + 60);
-              if (tf === 1) col = pal[0];
-              else if (tf === 2) col = pal[3];
+              // Mottled turf: broad light and dark patches with dithered rims.
+              const patch = valueNoise(wx / 24, wy / 24, seed + 61) * 0.62 + valueNoise(wx / 8, wy / 8, seed + 62) * 0.38;
+              let tone = 1.3 + (0.5 - macro) * 1.4 + (0.5 - meso) * 0.5;
+              if (patch > 0.63) tone -= 0.9;
+              else if (patch < 0.37) tone += 0.9;
+              col = pal[Math.max(0, Math.min(4, Math.round(tone + (bayer(wx, wy) - 0.5) * 0.7)))];
+              // Blade clumps, thicker in the lush patches.
+              const bl = blades(wx, wy, seed + 60, patch > 0.55 ? 0.62 : 0.34);
+              if (bl === 1) col = pal[0];
+              else if (bl === 2) col = pal[Math.max(0, Math.min(3, Math.round(tone) - 1))];
+              else if (bl === 3) col = pal[4];
+              // Clover in the damper hollows.
+              else if (patch < 0.4 && hash2(wx >> 1, wy >> 1, seed + 64) < 0.05) col = CLOVER[(wx + wy) & 1];
+              // Bare earth scuffs out in the open grass, and crumbs of dirt along the paths.
+              const rd = roadDist[i];
+              const bare = t === Terrain.Grass && valueNoise(wx / 34, wy / 34, seed + 63) > 0.86 && valueNoise(wx / 6, wy / 6, seed + 65) > 0.52;
+              if (bare) col = DIRT[Math.min(3, Math.floor(hash2(wx, wy, seed + 66) * 2.2) + (valueNoise(wx / 6, wy / 6, seed + 65) > 0.62 ? 0 : 1))];
+              else if (rd < 1.5 && hash2(wx, wy, seed + 67) < 0.5) col = PATH_EDGE;
+              else if (rd < 4 && hash2(wx, wy, seed + 68) < 0.16) col = DIRT[1 + Math.floor(hash2(wx, wy, seed + 69) * 2)];
               if (t === Terrain.Forest && h > 0.992) col = C('#8a7a4e');
               if (t === Terrain.Meadow && h > 0.965) col = FLOWER_SPECKS[Math.floor(hash2(wx, wy, seed + 9) * FLOWER_SPECKS.length)];
               break;
@@ -481,8 +515,15 @@ export class TerrainRenderer {
             }
             case Terrain.Path: {
               col = band(PATH, v * 0.8, wx, wy);
-              if (h < 0.025) col = PATH[3];
-              else if (h > 0.985) col = C('#e6c897');
+              const rd = roadDist[i];
+              // Ragged, trodden edges with grass creeping in.
+              if (rd > -1.6) col = hash2(wx, wy, seed + 70) < 0.3 ? GRASS[3] : PATH_EDGE;
+              else if (rd > -3 && hash2(wx, wy, seed + 71) < 0.35) col = PATH[3];
+              else if (h < 0.025) col = PATH[3];
+              else if (h > 0.985) {
+                // A pebble with a shadow beneath.
+                col = C('#f2e0bc');
+              } else if (hash2(wx, wy - 1, seed + 77) > 0.985) col = PATH_EDGE;
               break;
             }
             case Terrain.Cobble: {

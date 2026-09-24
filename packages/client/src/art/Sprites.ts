@@ -6,7 +6,10 @@ import { ITEM_ICONS } from './sprites/items';
 import { forageGround, forageIcon, noticeBoard } from './sprites/forage';
 import * as landmarks from './sprites/landmarks';
 import { fieldStone, twig, weed } from './sprites/debris';
-import { blossomTree, bush, flowers, oakTree, palmTree, pineTree, reeds, rock, stump, type SeasonLook, type TreeSprite } from './sprites/nature';
+import { birch, broadleaf, cherry, conifer, shrub } from './sprites/foliage';
+import { Pix } from './Pix';
+import { pack as packColor } from './palette';
+import { flowers, palmTree, reeds, rock, stump, type SeasonLook, type TreeSprite } from './sprites/nature';
 import * as props from './sprites/props';
 import * as details from './sprites/details';
 import { shipSprite } from './sprites/ship';
@@ -37,11 +40,14 @@ class SpriteCache {
     const variant = v; // every tree on the island is its own drawing
     return this.get(`tree:${kind}:${variant}:${kind === 'palm' ? 0 : season}`, () =>
       kind === 'oak'
-        ? oakTree(variant, season)
+        ? // Broadleaf woods mix oaks with the odd birch and golden-leaved tree.
+          variant % 7 === 3
+          ? birch(variant, season)
+          : broadleaf(variant, season, variant % 6 === 1)
         : kind === 'pine'
-          ? pineTree(variant, season)
+          ? conifer(variant, season)
           : kind === 'blossom'
-            ? blossomTree(variant, season)
+            ? cherry(variant, season)
             : kind === 'fruittree'
               ? landmarks.fruitTree(variant, season)
               : palmTree(variant),
@@ -78,7 +84,26 @@ class SpriteCache {
   }
 
   bush(v: number, season: SeasonLook) {
-    return this.get(`bush:${v}:${season}`, () => bush(v, season));
+    return this.get(`bush:${v}:${season}`, () => shrub(v, season));
+  }
+  /** Crisp pixel ellipse shadow with a dithered rim (no anti-aliased edges). */
+  shadowBlob(rx: number, ry: number, alpha = 60) {
+    return this.get(`shadow:${rx}:${ry}:${alpha}`, () => {
+      const w = rx * 2 + 1;
+      const h = ry * 2 + 1;
+      const p = new Pix(w, h);
+      const solid = packColor('#18204a', alpha);
+      const soft = packColor('#18204a', Math.round(alpha * 0.55));
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          const d = ((x - rx) / (rx + 0.5)) ** 2 + ((y - ry) / (ry + 0.5)) ** 2;
+          if (d > 1) continue;
+          if (d > 0.62) {
+            if ((x + y) & 1) p.set(x, y, soft);
+          } else p.set(x, y, solid);
+        }
+      return p.toCanvas();
+    });
   }
   rock(v: number) {
     return this.get(`rock:${v}`, () => rock(v));

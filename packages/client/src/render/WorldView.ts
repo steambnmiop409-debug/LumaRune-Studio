@@ -252,11 +252,10 @@ export class WorldView {
 
     // 5. Soft contact shadows + y-sorted drawables.
     const drawables: Drawable[] = [];
-    const shadow = (x: number, y: number, rx: number, ry: number) => {
-      ctx.fillStyle = 'rgba(24,30,64,0.22)';
-      ctx.beginPath();
-      ctx.ellipse(Math.round(x - cx), Math.round(y - cy), rx, ry, 0, 0, Math.PI * 2);
-      ctx.fill();
+    const shadow = (x: number, y: number, rx: number, ry: number, alpha = 56) => {
+      const R = Math.max(1, Math.round(rx));
+      const Rr = Math.max(1, Math.round(ry));
+      ctx.drawImage(Sprites.shadowBlob(R, Rr, alpha), Math.round(x - R - cx), Math.round(y - Rr - cy));
     };
     const wind = 0.25 + input.weather.wind;
     const objs = this.visibleObjects(vw, vh);
@@ -268,7 +267,10 @@ export class WorldView {
         // Wild trees stand a few pixels off the grid so groves never look planted; orchard rows stay neat.
         const jx = o.kind === 'fruittree' ? 0 : (o.v % 9) - 4;
         const jy = o.kind === 'fruittree' ? 0 : (Math.floor(o.v / 9) % 5) - 2;
-        shadow(bx + 8 + jx, by + 13 + jy, o.kind === 'fruittree' ? 10 : 11, 3.5);
+        // A broad canopy shadow cast a little to the lower right, plus a dark contact shadow at the trunk.
+        const cw = Math.round(tree.img.width * (o.kind === 'pine' ? 0.3 : 0.38));
+        shadow(bx + 10 + jx, by + 12 + jy, cw, Math.max(4, Math.round(cw * 0.36)), 44);
+        shadow(bx + 8 + jx, by + 14 + jy, 5, 2, 70);
         const sx = bx + 8 - tree.ax - cx + jx;
         const sy = by + 14 - tree.ay - cy + jy;
         const sway = Math.round(Math.sin(this.time * 1.4 + o.x * 0.7 + o.y * 0.3) * wind * 1.3);
