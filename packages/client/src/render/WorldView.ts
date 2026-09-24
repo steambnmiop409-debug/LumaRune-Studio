@@ -20,6 +20,7 @@ import { CROP_H, CROP_W } from '../art/sprites/crops';
 import type { SeasonLook } from '../art/sprites/nature';
 import { Lighting, ambientColor, darkness, type Light } from './Lighting';
 import { Particles } from './Particles';
+import { Critters } from './Critters';
 import { TerrainRenderer } from './TerrainRenderer';
 import { WeatherFx } from './WeatherFx';
 
@@ -67,6 +68,7 @@ const LANDMARKS = new Set(['tent', 'campfire', 'logseat', 'woodpile', 'ruin', 's
 export class WorldView {
   readonly terrain: TerrainRenderer;
   readonly particles = new Particles();
+  readonly critters = new Critters();
   readonly weatherFx = new WeatherFx();
   private lighting = new Lighting();
   camX = 0;
@@ -150,6 +152,23 @@ export class WorldView {
         }
       }
     }
+    // Wildlife.
+    const me = input.players[0];
+    this.critters.update(dt, {
+      map: this.map,
+      camX: this.camX,
+      camY: this.camY,
+      vw,
+      vh,
+      season,
+      dark: this.dark,
+      raining: input.raining,
+      player: me ? { x: me.x, y: me.y } : null,
+      splash: (x, y) => {
+        for (let i = 0; i < 5; i++) this.particles.spawn({ x: x + (Math.random() - 0.5) * 4, y, vx: (Math.random() - 0.5) * 30, vy: -20 - Math.random() * 20, g: 140, max: 0.45, color: '#e0f4f8' });
+        this.particles.spawn({ kind: 'splash', x, y, max: 0.5, color: '#d8f0f8' });
+      },
+    });
     // Seasonal ambience.
     this.ambientT += dt;
     if (this.ambientT > 0.12) {
@@ -613,8 +632,10 @@ export class WorldView {
       if (lit) lights.push({ x: pl.x - cx, y: pl.y - 10 - cy, r: 40, color: '#ffe6b0', a: 0.55 });
     }
 
+    drawables.push(...this.critters.groundDrawables(ctx, cx, cy));
     drawables.sort((a, b) => a.y - b.y);
     for (const d of drawables) d.draw();
+    this.critters.drawAir(ctx, cx, cy);
 
     // Rain covers over everything below them.
     for (const p of covers) {

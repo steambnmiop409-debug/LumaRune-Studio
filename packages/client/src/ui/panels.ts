@@ -20,6 +20,9 @@ import {
   type DaySummary,
   type ShopId,
   type WorldMap,
+  allNpcPoses,
+  CLOTH_COLORS,
+  NPC_BY_ID,
 } from '@lumina/core';
 import { Sprites } from '../art/Sprites';
 import { P, shade } from '../art/palette';
@@ -101,9 +104,18 @@ function minimap(map: WorldMap): HTMLCanvasElement {
     img.data.set([r, g, b, 255], i * 4);
   }
   ctx.putImageData(img, 0, 0);
+  // Plateaus read a shade lighter, with their rims drawn in.
+  for (let i = 0; i < map.terrain.length; i++) {
+    if (!map.level[i] || map.terrain[i] === Terrain.Sea || map.terrain[i] === Terrain.Deep) continue;
+    const d = img.data;
+    d[i * 4] = Math.min(255, d[i * 4] + 16);
+    d[i * 4 + 1] = Math.min(255, d[i * 4 + 1] + 14);
+    d[i * 4 + 2] = Math.min(255, d[i * 4 + 2] + 8);
+  }
+  ctx.putImageData(img, 0, 0);
   for (const o of map.objects)
-    if (o.kind === 'oak' || o.kind === 'pine' || o.kind === 'blossom' || o.kind === 'palm') {
-      ctx.fillStyle = o.kind === 'blossom' ? '#e8a8b8' : '#4a7a44';
+    if (o.kind === 'oak' || o.kind === 'pine' || o.kind === 'blossom' || o.kind === 'palm' || o.kind === 'fruittree') {
+      ctx.fillStyle = o.kind === 'blossom' ? '#e8a8b8' : o.kind === 'fruittree' ? '#6aa84a' : o.kind === 'pine' ? '#3e6a3e' : '#4a7a44';
       ctx.fillRect(o.x, o.y, 1, 1);
     }
   for (const b of map.buildings) {
@@ -343,29 +355,143 @@ export class JournalPanel implements Panel {
     const c = ui.ctx;
     const map = this.world.map;
     const img = minimap(map);
-    const mx = Math.round(x + (w - img.width) / 2);
-    const my = Math.round(y + (h - img.height) / 2) + 4;
+    // A separate paper card laid over the book, so the spine never cuts the island in half.
+    const cw = img.width + 20;
+    const ch = img.height + 34;
+    const kx = Math.round(x + (w - cw) / 2);
+    const ky = Math.round(y + (h - ch) / 2) - 2;
+    c.fillStyle = 'rgba(40,30,20,0.25)';
+    c.fillRect(kx + 3, ky + 3, cw, ch);
+    ui.inset({ x: kx, y: ky, w: cw, h: ch }, P.paperLight);
+    const mx = kx + 10;
+    const my = ky + 24;
+    drawText(c, '루미나 섬 지도', kx + 10, ky + 6, { font: 'bold' });
+    drawText(c, `${formatDate(this.world.clock.day)}`, kx + cw - 10, ky + 8, { font: 'tiny', color: P.inkSoft, align: 'right' });
     c.fillStyle = P.ink;
     c.fillRect(mx - 1, my - 1, img.width + 2, img.height + 2);
     c.drawImage(img, mx, my);
-    drawText(c, '루미나 섬', x + 10, y + 6, { font: 'bold' });
-    const label = (text: string, tx: number, ty: number) => drawText(c, text, mx + tx, my + ty, { font: 'small', color: P.ink, outline: P.paperLight, align: 'center' });
-    for (const b of map.buildings) {
-      const name = b.kind === 'seedShop' ? SHOPS.seedShop.name : b.kind === 'toolShop' ? SHOPS.toolShop.name : b.kind === 'lighthouse' ? '등대' : b.kind === 'house' ? '나의 집' : null;
-      if (name) label(name, b.x + b.w / 2, b.y - 11);
+
+    // Landmark glyphs.
+    const glyph = (tx: number, ty: number, color: string, shape: 'dot' | 'tri' | 'sq') => {
+      const gx = mx + tx;
+      const gy = my + ty;
+      c.fillStyle = P.ink;
+      if (shape === 'tri') {
+        c.fillRect(gx - 2, gy + 1, 5, 1);
+        c.fillRect(gx - 1, gy, 3, 1);
+        c.fillRect(gx, gy - 1, 1, 1);
+        c.fillStyle = color;
+        c.fillRect(gx - 1, gy + 1, 3, 1);
+        c.fillRect(gx, gy, 1, 1);
+      } else {
+        c.fillRect(gx - 2, gy - 2, 5, 5);
+        c.fillStyle = color;
+        c.fillRect(gx - 1, gy - 1, 3, 3);
+      }
+    };
+    for (const o of map.objects) {
+      if (o.kind === 'tent') glyph(o.x + 1, o.y + 1, '#e07a3a', 'tri');
+      else if (o.kind === 'shrine') glyph(o.x + 1, o.y, '#c8c0b0', 'sq');
+      else if (o.kind === 'gazebo') glyph(o.x + 2, o.y, '#f4efe6', 'tri');
+      else if (o.kind === 'tidepool') glyph(o.x + 1, o.y, '#5ab0b8', 'dot');
     }
-    label('항구', map.pierEnd.x, map.pierEnd.y + 3);
-    label(ZONE_NAME[5], 180, 44);
-    label(ZONE_NAME[4], 108, 20);
-    label(ZONE_NAME[6], 52, 136);
+    const f = map.falls[0];
+    if (f !== undefined) glyph(f % map.w, Math.floor(f / map.w), '#e6f7f6', 'dot');
+
+    // Labels, placed so they never overlap one another.
+    const taken: Array<{ x: number; y: number; w: number; h: number }> = [];
+    const label = (text: string, tx: number, ty: number, font: 'small' | 'tiny' = 'tiny') => {
+      const lw = measure(text, font) + 2;
+      const lh = font === 'small' ? 11 : 9;
+      for (const [ox, oy] of [
+        [0, -lh - 2],
+        [0, 4],
+        [-lw / 2 - 4, -lh / 2],
+        [lw / 2 + 4, -lh / 2],
+        [0, -2 * lh - 2],
+      ]) {
+        const r = { x: Math.round(mx + tx + ox - lw / 2), y: Math.round(my + ty + oy), w: lw, h: lh };
+        if (taken.some((q) => r.x < q.x + q.w && q.x < r.x + r.w && r.y < q.y + q.h && q.y < r.y + r.h)) continue;
+        taken.push(r);
+        drawText(c, text, r.x + 1, r.y, { font, color: P.ink, outline: P.paperLight });
+        return;
+      }
+    };
+    const home = map.buildings.find((b) => b.kind === 'house')!;
+    label('나의 집', home.x + home.w / 2, home.y, 'small');
+    label('마을 광장', map.plaza.x + map.plaza.w / 2, map.plaza.y + map.plaza.h / 2, 'small');
+    label('항구', map.pierEnd.x, map.pierEnd.y + 2);
+    label('등대', map.lighthouse.x + 1, map.lighthouse.y);
+    for (const [z, name] of Object.entries(ZONE_NAME)) {
+      const id = Number(z);
+      if (id < 4 || id === 7) continue;
+      const cen = zoneCentre(map, id);
+      if (cen) label(name, cen.x, cen.y);
+    }
+
+    // Villagers (small coloured pins) and you (blinking).
+    const minute = this.world.minute(true);
+    const poses = allNpcPoses(map, minute);
+    for (const n of poses) {
+      const def = NPC_BY_ID.get(n.id)!;
+      const px = mx + Math.floor(n.x / TILE);
+      const py = my + Math.floor(n.y / TILE) - 1;
+      c.fillStyle = P.ink;
+      c.fillRect(px - 1, py - 1, 3, 3);
+      c.fillStyle = CLOTH_COLORS[def.look.topColor];
+      c.fillRect(px, py, 1, 1);
+    }
     const p = this.world.self;
-    if (Math.floor(this.time * 3) % 2 === 0) {
+    const ppx = mx + Math.floor(p.x / TILE);
+    const ppy = my + Math.floor(p.y / TILE) - 1;
+    if (Math.floor(this.time * 3) % 3 !== 0) {
+      c.fillStyle = P.ink;
+      c.fillRect(ppx - 2, ppy - 2, 5, 5);
       c.fillStyle = P.coral;
-      c.fillRect(mx + Math.floor(p.x / TILE) - 1, my + Math.floor(p.y / TILE) - 1, 3, 3);
+      c.fillRect(ppx - 1, ppy - 1, 3, 3);
       c.fillStyle = P.white;
-      c.fillRect(mx + Math.floor(p.x / TILE), my + Math.floor(p.y / TILE), 1, 1);
+      c.fillRect(ppx, ppy, 1, 1);
     }
+
+    // Hover: where is this, and who is here?
+    const hx = ui.input.mouseX - mx;
+    const hy = ui.input.mouseY - my;
+    if (hx >= 0 && hy >= 0 && hx < img.width && hy < img.height) {
+      const lines: Array<{ text: string; font?: 'small' | 'bold'; color?: string }> = [];
+      const zid = map.zone[hy * map.w + hx] as keyof typeof ZONE_NAME;
+      lines.push({ text: ZONE_NAME[zid] ?? '루미나 섬', font: 'bold' });
+      for (const n of poses) if (Math.abs(n.x / TILE - hx) < 3 && Math.abs(n.y / TILE - hy) < 3) lines.push({ text: NPC_BY_ID.get(n.id)!.name, font: 'small', color: P.tealDark });
+      if (Math.abs(p.x / TILE - hx) < 3 && Math.abs(p.y / TILE - hy) < 3) lines.push({ text: '현재 위치', font: 'small', color: P.coralDark });
+      ui.tooltip(lines);
+    }
+    // Legend.
+    const ly = ky + ch - 13;
+    let lx = kx + 10;
+    c.fillStyle = P.coral;
+    c.fillRect(lx, ly + 3, 3, 3);
+    lx += drawText(c, '나', lx + 5, ly, { font: 'tiny', color: P.inkSoft }) + 12;
+    c.fillStyle = P.tealDark;
+    c.fillRect(lx, ly + 3, 3, 3);
+    lx += drawText(c, '주민', lx + 5, ly, { font: 'tiny', color: P.inkSoft }) + 12;
+    drawText(c, '마우스를 올리면 지역 이름이 보여요', kx + cw - 10, ly, { font: 'tiny', color: P.inkSoft, align: 'right' });
   }
+}
+
+const zoneCentres = new Map<number, { x: number; y: number } | null>();
+function zoneCentre(map: WorldMap, id: number): { x: number; y: number } | null {
+  if (zoneCentres.has(id)) return zoneCentres.get(id)!;
+  let sx = 0;
+  let sy = 0;
+  let n = 0;
+  for (let i = 0; i < map.zone.length; i++)
+    if (map.zone[i] === id) {
+      sx += i % map.w;
+      sy += Math.floor(i / map.w);
+      n++;
+    }
+  const c = n ? { x: Math.round(sx / n), y: Math.round(sy / n) } : null;
+  zoneCentres.set(id, c);
+  return c;
 }
 
 // ───────────────────────────── Shop ─────────────────────────────
@@ -464,6 +590,10 @@ export class ShopPanel implements Panel {
       if (ui.arrow(dx, by + 2, -1)) this.qty = Math.max(1, this.qty - (ui.input.keyDown('ShiftLeft') ? 10 : 1));
       drawText(c, `×${this.qty}`, dx + 34, by + 3, { font: 'bold', align: 'center' });
       if (ui.arrow(dx + 54, by + 2, 1)) this.qty = Math.min(99, this.qty + (ui.input.keyDown('ShiftLeft') ? 10 : 1));
+      // One click for as many as the purse allows.
+      const most = Math.max(1, Math.min(99, Math.floor(this.world.gold / Math.max(1, it.price))));
+      if (ui.button({ x: dx, y: by - 19, w: 44, h: 15 }, `최대 ${most}`, { disabled: this.qty === most, font: 'small' })) this.qty = most;
+      if (ui.button({ x: dx + 48, y: by - 19, w: 26, h: 15 }, '1', { disabled: this.qty === 1, font: 'small' })) this.qty = 1;
     }
     const total = it.price * (single ? 1 : this.qty);
     drawText(c, `합계 ${formatGold(total)}`, dx + 76, by + 3, { font: 'small' });
