@@ -42,9 +42,11 @@ packages/
    ├─ art/        팔레트, 절차적 픽셀 스프라이트 생성기(타일·작물·캐릭터·건물)
    ├─ render/     월드 청크 렌더러, 물·거품, 오브젝트 Y정렬, 조명, 날씨 효과
    ├─ ui/         항해 일지 UI 위젯(하늘 다이얼, 핫바, 일지, 상점, 포장대…)
-   ├─ audio/      WebAudio 절차적 앰비언스·효과음·음악
+   ├─ audio/      오디오 파일 재생(효과음·환경음 믹스·음악 크로스페이드)
    ├─ net/        Connection(Worker / WebSocket) 추상화, 클라이언트 월드 미러
    └─ scenes/     타이틀, 캐릭터 만들기, 게임 플레이
+tools/
+└─ audio/    사운드 제작 도구: 사운드폰트의 녹음 샘플 → 편집 → OGG (npm run audio)
 apps/
 └─ desktop/  Electron 셸 + 스팀 연동 (M4 단계)
 ```
