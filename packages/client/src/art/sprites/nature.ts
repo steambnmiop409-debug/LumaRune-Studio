@@ -69,7 +69,7 @@ export function oakTree(v: number, season: SeasonLook): TreeSprite {
   const p = new Pix(34, 46);
   const s = (v % 7) / 7;
   const big = v % 3 === 0 ? 1 : 0;
-  trunk(p, 17, 28, 45, 6);
+  trunk(p, 17, 28, 45, 5 + (v % 3), mix('#8a5a3a', '#6e4a3a', hash2(v, 2, 9)));
   if (season === 3) {
     // Bare winter branches.
     const br = '#6e4a34';
@@ -83,17 +83,20 @@ export function oakTree(v: number, season: SeasonLook): TreeSprite {
     p.outline(shade(br, 3));
     return { img: p.toCanvas(), swayRows: 28, ax: 17, ay: 45 };
   }
-  const base = season === 2 ? AUTUMN[v % AUTUMN.length] : OAK_LEAVES[v % OAK_LEAVES.length];
+  const base = mix(season === 2 ? AUTUMN[v % AUTUMN.length] : OAK_LEAVES[v % OAK_LEAVES.length], season === 2 ? '#c8503a' : '#3f7a5a', hash2(v, 5, 9) * 0.35);
   const tint = season === 0 ? light(base, 1) : base;
+  // A canopy layout of its own: 4-7 overlapping masses placed by this tree's seed.
+  const R = (k: number) => hash2(v, k, 77);
+  const blobs: Array<[number, number, number, number]> = [[17, 17 - big, 12 + big + R(1) * 2, 10 + big + R(2) * 2]];
+  const extra = 3 + Math.floor(R(3) * 4);
+  for (let i = 0; i < extra; i++) {
+    const a = R(10 + i) * Math.PI * 2;
+    const d = 5 + R(20 + i) * 5;
+    blobs.push([17 + Math.cos(a) * d * 1.2, 15 + Math.sin(a) * d * 0.9 - 1, 4.5 + R(30 + i) * 3.5, 4 + R(40 + i) * 3]);
+  }
   canopy(
     p,
-    [
-      [17, 17 - big, 14 + big, 11 + big],
-      [9, 23, 7 + s * 2, 6],
-      [25, 22, 8, 6 + s * 2],
-      [16, 8 - big, 9, 7],
-      [21, 12, 7, 6],
-    ],
+    blobs,
     tint,
     v * 13,
     5,

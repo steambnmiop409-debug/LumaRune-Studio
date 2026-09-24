@@ -189,7 +189,16 @@ export class Hud {
     ui.ctx.fillStyle = urgent && Math.floor(time * 3) % 2 ? P.brassLight : '#e8d8b2';
     ui.ctx.fillRect(chip.x + 1, chip.y + 1, chip.w - 2, chip.h - 2);
     const shipText = shipPresent && !departed && left > 0 ? `출항까지 ${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}` : '배는 내일 06:00 도착';
-    drawText(ctx, `⚓ ${shipText}`, chip.x + 6, chip.y + 2, { font: 'small', color: urgent ? P.coralDark : P.ink });
+    // Tiny anchor glyph.
+    const ax = chip.x + 5;
+    const ay = chip.y + 3;
+    ctx.fillStyle = urgent ? P.coralDark : P.ink;
+    ctx.fillRect(ax + 3, ay, 1, 8);
+    ctx.fillRect(ax + 1, ay + 2, 5, 1);
+    ctx.fillRect(ax, ay + 6, 1, 1);
+    ctx.fillRect(ax + 6, ay + 6, 1, 1);
+    ctx.fillRect(ax + 1, ay + 7, 5, 1);
+    drawText(ctx, shipText, chip.x + 15, chip.y + 2, { font: 'small', color: urgent ? P.coralDark : P.ink });
 
     // Money pouch.
     const mx = vw - 6 - 86;

@@ -261,6 +261,38 @@ export class WorldView {
           drawables.push({ y: by + 8, draw: () => ctx.drawImage(img, bx - cx, by + TILE - img.height - cy) });
           break;
         }
+        case 'tallgrass':
+        case 'pebbles':
+        case 'mushroom':
+        case 'lilypad': {
+          const frame = (o.kind === 'tallgrass' || o.kind === 'lilypad') && Math.sin(this.time * 1.7 + o.x * 0.8 + o.y) * wind > 0.15 ? 1 : 0;
+          const img = Sprites.detail(o.kind, o.v, frame);
+          const low = o.kind === 'pebbles' || o.kind === 'lilypad';
+          drawables.push({ y: low ? by : by + 9, draw: () => ctx.drawImage(img, bx - cx, by + TILE - img.height - cy) });
+          break;
+        }
+        case 'log':
+        case 'boat':
+        case 'netrack':
+        case 'fishcrate':
+        case 'anchor':
+        case 'stall':
+        case 'flowerbed':
+        case 'laundry':
+        case 'haybale':
+        case 'scarecrow':
+        case 'beehive':
+        case 'picnic':
+        case 'telescope': {
+          const frame = (o.kind === 'laundry' || o.kind === 'scarecrow') && Math.sin(this.time * 2.2 + o.x) * wind > 0.1 ? 1 : 0;
+          const img = Sprites.detail(o.kind, o.v, frame);
+          const w = (o.w ?? 1) * TILE;
+          const flat = o.kind === 'picnic' || o.kind === 'flowerbed';
+          if (!flat) shadow(bx + w / 2, by + 14, w / 2 - 2, 2);
+          drawables.push({ y: flat ? by + 2 : by + 14, draw: () => ctx.drawImage(img, bx + Math.floor((w - img.width) / 2) - cx, by + TILE - img.height + (flat ? 1 : 0) - cy) });
+          if (o.kind === 'beehive' && Math.random() < 0.02 && !input.raining && this.dark < 0.3) this.particles.spawn({ x: bx + 8, y: by, vx: (Math.random() - 0.5) * 30, vy: -10, max: 1.5, color: '#f5d040' });
+          break;
+        }
         case 'fence': {
           const k = o.y * map.w + o.x;
           const mask = (this.fences.has(k - 1) ? 1 : 0) | (this.fences.has(k + 1) ? 2 : 0) | (this.fences.has(k - map.w) ? 4 : 0) | (this.fences.has(k + map.w) ? 8 : 0);

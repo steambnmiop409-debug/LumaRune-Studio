@@ -22,7 +22,24 @@ export type ObjectKind =
   | 'packbench'
   | 'flowers'
   | 'reeds'
-  | 'mailbox';
+  | 'mailbox'
+  | 'tallgrass'
+  | 'pebbles'
+  | 'mushroom'
+  | 'log'
+  | 'lilypad'
+  | 'boat'
+  | 'netrack'
+  | 'fishcrate'
+  | 'anchor'
+  | 'stall'
+  | 'flowerbed'
+  | 'laundry'
+  | 'haybale'
+  | 'scarecrow'
+  | 'beehive'
+  | 'picnic'
+  | 'telescope';
 
 /** Decorative / blocking object anchored at a tile. */
 export interface WorldObject {

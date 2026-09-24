@@ -5,6 +5,7 @@ import { cropSprite, deadCropSprite, produceIcon, seedIcon } from './sprites/cro
 import { ITEM_ICONS } from './sprites/items';
 import { blossomTree, bush, flowers, oakTree, palmTree, pineTree, reeds, rock, stump, type SeasonLook, type TreeSprite } from './sprites/nature';
 import * as props from './sprites/props';
+import * as details from './sprites/details';
 import { shipSprite } from './sprites/ship';
 import * as ui from './sprites/ui';
 
@@ -30,26 +31,67 @@ class SpriteCache {
   }
 
   tree(kind: 'oak' | 'pine' | 'blossom' | 'palm', v: number, season: SeasonLook): TreeSprite {
-    const variant = v % 8;
+    const variant = v; // every tree on the island is its own drawing
     return this.get(`tree:${kind}:${variant}:${kind === 'palm' ? 0 : season}`, () =>
       kind === 'oak' ? oakTree(variant, season) : kind === 'pine' ? pineTree(variant, season) : kind === 'blossom' ? blossomTree(variant, season) : palmTree(variant),
     );
   }
 
   bush(v: number, season: SeasonLook) {
-    return this.get(`bush:${v % 6}:${season}`, () => bush(v % 6, season));
+    return this.get(`bush:${v}:${season}`, () => bush(v, season));
   }
   rock(v: number) {
-    return this.get(`rock:${v % 6}`, () => rock(v % 6));
+    return this.get(`rock:${v}`, () => rock(v));
   }
   stump() {
     return this.get('stump', stump);
   }
   flowers(v: number, frame: number) {
-    return this.get(`flowers:${v % 12}:${frame}`, () => flowers(v % 12, frame));
+    return this.get(`flowers:${v}:${frame}`, () => flowers(v, frame));
   }
   reeds(v: number, frame: number) {
-    return this.get(`reeds:${v % 10}:${frame}`, () => reeds(v % 10, frame));
+    return this.get(`reeds:${v}:${frame}`, () => reeds(v, frame));
+  }
+  /** Unique life-detail props (tall grass, boats, stalls…). */
+  detail(kind: string, v: number, frame = 0): HTMLCanvasElement {
+    return this.get(`detail:${kind}:${v}:${frame}`, () => {
+      switch (kind) {
+        case 'tallgrass':
+          return details.tallGrass(v, frame);
+        case 'pebbles':
+          return details.pebbles(v);
+        case 'mushroom':
+          return details.mushroom(v);
+        case 'log':
+          return details.log(v);
+        case 'lilypad':
+          return details.lilypad(v, frame);
+        case 'boat':
+          return details.boat(v);
+        case 'netrack':
+          return details.netRack(v);
+        case 'fishcrate':
+          return details.fishCrate(v);
+        case 'anchor':
+          return details.anchor();
+        case 'stall':
+          return details.stall(v);
+        case 'flowerbed':
+          return details.flowerBed(v);
+        case 'laundry':
+          return details.laundry(v, frame);
+        case 'haybale':
+          return details.hayBale(v);
+        case 'scarecrow':
+          return details.scarecrow(v, frame);
+        case 'beehive':
+          return details.beehive(v);
+        case 'picnic':
+          return details.picnic(v);
+        default:
+          return details.telescope();
+      }
+    });
   }
   lamp(lit: boolean) {
     return this.get(`lamp:${lit}`, () => props.lamp(lit));
@@ -81,7 +123,7 @@ class SpriteCache {
     return this.get(`fountain:${frame}`, () => props.fountain(frame));
   }
   flowerpot(v: number) {
-    return this.get(`pot:${v % 4}`, () => props.flowerpot(v % 4));
+    return this.get(`pot:${v}`, () => props.flowerpot(v));
   }
   crate(label?: string) {
     return this.get(`crate:${label ?? ''}`, () => props.crate(label));

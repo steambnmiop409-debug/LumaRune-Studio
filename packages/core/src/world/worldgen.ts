@@ -30,6 +30,17 @@ const SOLID_OBJECTS: ReadonlySet<ObjectKind> = new Set<ObjectKind>([
   'bollard',
   'packbench',
   'mailbox',
+  'log',
+  'boat',
+  'netrack',
+  'fishcrate',
+  'anchor',
+  'stall',
+  'laundry',
+  'haybale',
+  'scarecrow',
+  'beehive',
+  'telescope',
 ]);
 
 export function isSolidObject(kind: ObjectKind): boolean {
@@ -499,6 +510,77 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
       else if (t === Terrain.Meadow && r3 < 0.3) objects.push({ kind: 'flowers', x, y, v: Math.floor(r3 * 1e5) % 1000 });
       else if (t === Terrain.Grass && z !== Zone.Farm && r3 < 0.035) objects.push({ kind: 'flowers', x, y, v: Math.floor(r3 * 1e5) % 1000 });
     }
+  }
+
+  // ── 11b. Life details: the little things that make a place feel lived in ──
+  {
+    const free = (x: number, y: number, w = 1, h = 1) => {
+      for (let yy = y; yy < y + h; yy++)
+        for (let xx = x; xx < x + w; xx++) {
+          if (!inb(xx, yy) || solid[idx(xx, yy)] || isWater(T(xx, yy))) return false;
+          if (objects.some((o) => o.x <= xx && xx < o.x + (o.w ?? 1) && o.y <= yy && yy < o.y + (o.h ?? 1) && isSolidObject(o.kind))) return false;
+        }
+      return true;
+    };
+    const place = (kind: ObjectKind, x: number, y: number, w = 1, h = 1) => {
+      if (free(x, y, w, h)) addObject(kind, x, y, w, h);
+    };
+    // Scattered ground detail.
+    for (let y = 2; y < H - 2; y++)
+      for (let x = 2; x < W - 2; x++) {
+        const i = idx(x, y);
+        if (solid[i] || reserved[i]) continue;
+        const t = terrain[i];
+        const z = zone[i];
+        const r = hash2(x, y, seed + 91);
+        if (t === Terrain.Grass && z !== Zone.Farm && z !== Zone.Village && r < 0.05) objects.push({ kind: 'tallgrass', x, y, v: Math.floor(hash2(x, y, seed + 92) * 1000) });
+        else if ((t === Terrain.Sand || t === Terrain.Path) && r < 0.018) objects.push({ kind: 'pebbles', x, y, v: Math.floor(hash2(x, y, seed + 93) * 1000) });
+        else if (t === Terrain.Forest && r < 0.025) objects.push({ kind: 'mushroom', x, y, v: Math.floor(hash2(x, y, seed + 94) * 1000) });
+        else if (t === Terrain.Forest && r > 0.996 && free(x, y, 2, 1)) addObject('log', x, y, 2, 1);
+      }
+    for (let y = 2; y < H - 2; y++)
+      for (let x = 2; x < W - 2; x++) if (T(x, y) === Terrain.Pond && hash2(x, y, seed + 95) < 0.3) objects.push({ kind: 'lilypad', x, y, v: Math.floor(hash2(x, y, seed + 96) * 1000) });
+    // Beach boats pulled up on the sand.
+    let boats = 0;
+    for (let y = beachC.y - 20; y < beachC.y + 25 && boats < 2; y += 3)
+      for (let x = beachC.x - 30; x < beachC.x + 20 && boats < 2; x++)
+        if (T(x, y) === Terrain.Sand && isWater(T(x, y + 2)) && free(x, y, 2, 1) && hash2(x, y, seed) < 0.25) {
+          addObject('boat', x, y, 2, 1);
+          boats++;
+          x += 8;
+        }
+    // Harbour life around the office.
+    const off = buildings.find((b) => b.kind === 'harborOffice');
+    if (off) {
+      place('netrack', off.x - 3, off.y + off.h, 2, 1);
+      place('fishcrate', off.x + off.w + 1, off.y + off.h - 1);
+      place('fishcrate', off.x + off.w + 1, off.y + off.h);
+      place('anchor', off.x - 1, off.y + off.h - 1);
+    }
+    // Market stalls on the plaza.
+    place('stall', plaza.x + 2, plaza.y + plaza.h - 4, 2, 1);
+    place('stall', plaza.x + plaza.w - 4, plaza.y + plaza.h - 4, 2, 1);
+    place('flowerbed', fx - 2, fy + 3, 2, 1);
+    place('flowerbed', fx + 2, fy + 3, 2, 1);
+    // Cottage gardens and laundry.
+    buildings
+      .filter((b) => b.kind === 'cottage')
+      .forEach((b, i) => {
+        place('flowerbed', b.x - 2, b.y + b.h - 1, 2, 1);
+        if (i % 2 === 0) place('laundry', b.x + b.w + 1, b.y + 1, 2, 1);
+      });
+    // Farm and windmill.
+    const mill = buildings.find((b) => b.kind === 'windmill');
+    if (mill) {
+      place('haybale', mill.x + mill.w, mill.y + mill.h - 1);
+      place('haybale', mill.x + mill.w + 1, mill.y + mill.h);
+    }
+    place('scarecrow', farm.x + farm.w - 3, farm.y + farm.h - 3);
+    place('beehive', farm.x + 1, farm.y + 8);
+    place('beehive', farm.x + 1, farm.y + 10);
+    // Meadow picnic and lighthouse telescope.
+    place('picnic', meadowC.x - 3, meadowC.y + 1, 2, 1);
+    place('telescope', lh.x + 4, lh.y + 3);
   }
 
   // ── 12. Collision map ──────────────────────────────────────────────────
