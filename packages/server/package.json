@@ -1,0 +1,25 @@
+{
+  "name": "@lumina/server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Authoritative game simulation. Runs in a Web Worker (single-player) or Node over WebSocket (multiplayer).",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./worker": "./src/worker/entry.ts"
+  },
+  "scripts": {
+    "start": "tsx src/node/main.ts"
+  },
+  "dependencies": {
+    "@lumina/core": "*",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.20.0"
+  }
+}

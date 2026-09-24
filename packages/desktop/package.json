@@ -1,0 +1,28 @@
+{
+  "name": "@lumina/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lumina Isle desktop app (Electron shell around the client build).",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "npm run build -w @lumina/client --prefix ../.. && electron .",
+    "dist": "npm run build -w @lumina/client --prefix ../.. && electron-builder --publish never",
+    "dist:win": "npm run build -w @lumina/client --prefix ../.. && electron-builder --win --publish never",
+    "dist:mac": "npm run build -w @lumina/client --prefix ../.. && electron-builder --mac --publish never",
+    "dist:linux": "npm run build -w @lumina/client --prefix ../.. && electron-builder --linux --publish never"
+  },
+  "devDependencies": {
+    "electron": "^38.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "studio.lumarune.luminaisle",
+    "productName": "Lumina Isle",
+    "directories": { "output": "release" },
+    "files": ["main.cjs", { "from": "../client/dist", "to": "game" }],
+    "win": { "target": ["nsis", "portable"] },
+    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true },
+    "mac": { "target": "dmg", "category": "public.app-category.simulation-games" },
+    "linux": { "target": ["AppImage"], "category": "Game" }
+  }
+}

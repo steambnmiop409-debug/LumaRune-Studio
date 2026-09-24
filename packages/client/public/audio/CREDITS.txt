@@ -1,0 +1,13 @@
+Lumina Isle — audio credits
+
+All sound effects, ambience beds and music in this folder were produced for Lumina Isle
+by rendering recorded samples from the GeneralUser GS SoundFont (v1.471, by S. Christian Collins)
+through the tools in tools/audio, then edited (layering, slicing, pitch variation, filtering,
+fades, loop crossfades and loudness matching).
+
+GeneralUser GS License v2.0: "You may use GeneralUser GS without restriction for your own music
+creation, private or commercial." Full text: node_modules/generaluser/LICENSE.txt
+https://www.schristiancollins.com
+
+Music composed for Lumina Isle: Lighthouse Lullaby (title), Morning Fields (day),
+Sunset Pier (evening), Starlit Hill (night), Rain on the Window (rain).

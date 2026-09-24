@@ -1,0 +1,10 @@
+node_modules/
+dist/
+dist-*/
+*.log
+.DS_Store
+.vite/
+coverage/
+saves/
+apps/desktop/out/
+packages/desktop/release/

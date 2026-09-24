@@ -1,0 +1,16 @@
+{
+  "name": "@lumina/audio-tools",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Offline sound production: renders recorded SoundFont samples (GeneralUser GS) into the game's OGG assets.",
+  "type": "module",
+  "scripts": {
+    "build": "tsx src/build.ts"
+  },
+  "devDependencies": {
+    "ffmpeg-static": "^5.2.0",
+    "generaluser": "^1.47.1",
+    "spessasynth_core": "^4.3.22",
+    "tsx": "^4.20.0"
+  }
+}
