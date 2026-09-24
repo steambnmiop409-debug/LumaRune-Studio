@@ -2,7 +2,7 @@ import { generateWorld, type SaveSlotInfo, type ServerMessage } from '@lumina/co
 import { P } from '../art/palette';
 import type { Game } from '../engine/Game';
 import type { Scene } from '../engine/Scene';
-import { drawText } from '../engine/text';
+import { drawText, measure } from '../engine/text';
 import { connect, type Connection } from '../net/Connection';
 import { formatGold } from '../ui/kit';
 import { Backdrop } from './backdrop';
@@ -110,11 +110,10 @@ export class TitleScene implements Scene {
 /** The logo: Galmuri14 rendered at an exact 2× with a brass shadow. */
 export function drawBigTitle(ctx: CanvasRenderingContext2D, text: string, cx: number, y: number): void {
   const c = document.createElement('canvas');
-  const cctx = c.getContext('2d')!;
-  cctx.font = '15px Galmuri14';
-  const w = Math.ceil(cctx.measureText(text).width) + 4;
+  const w = measure(text, 'title') + 4;
   c.width = w;
   c.height = 22;
+  const cctx = c.getContext('2d')!;
   drawText(cctx, text, 1, 2, { font: 'title', color: P.paperLight, outline: P.ink });
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(c, Math.round(cx - w), y, w * 2, 44);

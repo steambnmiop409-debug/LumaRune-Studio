@@ -33,10 +33,10 @@ export function seedCard(ui: UI, x: number, y: number, w: number, cropId: string
   const c = findCrop(cropId)!;
   const ctx = ui.ctx;
   icon2x(ctx, Sprites.icon(`crop.${c.id}`), x, y);
-  drawText(ctx, c.name, x + 38, y + 1, { font: 'bold' });
-  drawText(ctx, c.nameEn, x + 38, y + 15, { font: 'small', color: P.inkSoft });
-  tierDots(ctx, x + 38, y + 27, c.tier);
-  drawText(ctx, CATEGORY_LABEL[c.category], x + 72, y + 24, { font: 'small', color: P.inkSoft });
+  drawText(ctx, c.name, x + 38, y, { font: 'bold', maxWidth: w - 80 });
+  drawText(ctx, c.nameEn, x + 38, y + 14, { font: 'tiny', color: P.inkSoft, maxWidth: w - 40 });
+  tierDots(ctx, x + 38, y + 25, c.tier);
+  drawText(ctx, CATEGORY_LABEL[c.category], x + 72, y + 22, { font: 'small', color: P.inkSoft });
   if (!discovered) drawText(ctx, '미수확', x + w - 2, y + 1, { font: 'small', color: P.coralDark, align: 'right' });
   let yy = y + 38;
   const row = (label: string, value: string, iconImg?: HTMLCanvasElement, color: string = P.ink) => {

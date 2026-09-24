@@ -1,74 +1,116 @@
-import galmuri11 from 'galmuri/dist/Galmuri11.woff2?url';
-import galmuri11b from 'galmuri/dist/Galmuri11-Bold.woff2?url';
-import galmuri9 from 'galmuri/dist/Galmuri9.woff2?url';
-import galmuri14 from 'galmuri/dist/Galmuri14.woff2?url';
 import { hexToRgb } from '../art/palette';
 
-export type FontId = 'body' | 'bold' | 'small' | 'title';
+/**
+ * Bitmap text. Glyphs come straight from the Galmuri BDF bitmap fonts (converted by
+ * tools/font/build.ts), so every letter is placed as exact 1-bit pixels: no browser
+ * anti-aliasing, no half pixels, and measurements that match what is drawn.
+ */
+export type FontId = 'body' | 'bold' | 'small' | 'tiny' | 'title';
 
-const FONTS: Record<FontId, { family: string; size: number; url: string; lineH: number }> = {
-  body: { family: 'Galmuri11', size: 12, url: galmuri11, lineH: 14 },
-  bold: { family: 'Galmuri11B', size: 12, url: galmuri11b, lineH: 14 },
-  small: { family: 'Galmuri9', size: 10, url: galmuri9, lineH: 11 },
-  title: { family: 'Galmuri14', size: 15, url: galmuri14, lineH: 18 },
-};
+interface Glyph {
+  dw: number;
+  w: number;
+  h: number;
+  x: number;
+  y: number;
+  bits: Uint8Array;
+}
+
+interface BitmapFont {
+  ascent: number;
+  descent: number;
+  glyphs: Map<number, Glyph>;
+}
+
+const fonts = {} as Record<FontId, BitmapFont>;
+const IDS: FontId[] = ['body', 'bold', 'small', 'tiny', 'title'];
+
+function parse(buf: ArrayBuffer): BitmapFont {
+  const v = new DataView(buf);
+  const count = v.getUint32(0, true);
+  const ascent = v.getUint8(4);
+  const descent = v.getUint8(5);
+  const glyphs = new Map<number, Glyph>();
+  let o = 8;
+  for (let i = 0; i < count; i++) {
+    const cp = v.getUint32(o, true);
+    const dw = v.getUint8(o + 4);
+    const w = v.getUint8(o + 5);
+    const h = v.getUint8(o + 6);
+    const x = v.getInt8(o + 7);
+    const y = v.getInt8(o + 8);
+    o += 9;
+    const n = Math.ceil(w / 8) * h;
+    glyphs.set(cp, { dw, w, h, x, y, bits: new Uint8Array(buf, o, n) });
+    o += n;
+  }
+  return { ascent, descent, glyphs };
+}
 
 export async function loadFonts(): Promise<void> {
   await Promise.all(
-    Object.values(FONTS).map(async (f) => {
-      const face = new FontFace(f.family, `url(${f.url})`);
-      await face.load();
-      document.fonts.add(face);
+    IDS.map(async (id) => {
+      const res = await fetch(`./fonts/${id}.bin`);
+      fonts[id] = parse(await res.arrayBuffer());
     }),
   );
 }
 
-const measureCtx = document.createElement('canvas').getContext('2d')!;
-const cache = new Map<string, HTMLCanvasElement>();
+function glyph(f: BitmapFont, cp: number): Glyph {
+  return f.glyphs.get(cp) ?? f.glyphs.get(0x3f)!;
+}
 
 export function lineHeight(font: FontId = 'body'): number {
-  return FONTS[font].lineH;
+  const f = fonts[font];
+  return f.ascent + f.descent + 2;
 }
 
 export function measure(text: string, font: FontId = 'body'): number {
-  const f = FONTS[font];
-  measureCtx.font = `${f.size}px ${f.family}`;
-  return Math.ceil(measureCtx.measureText(text).width);
+  const f = fonts[font];
+  let w = 0;
+  for (const ch of text) w += glyph(f, ch.codePointAt(0)!).dw;
+  return w;
 }
 
-/**
- * Renders text into a cached sprite with alpha thresholding, so glyph edges stay crisp pixels
- * even though the browser rasterizes fonts with anti-aliasing.
- */
-function textSprite(text: string, font: FontId, color: string): HTMLCanvasElement {
+const cache = new Map<string, HTMLCanvasElement>();
+
+/** Renders a string into a 1-bit sprite of the given colour. */
+function sprite(text: string, font: FontId, color: string): HTMLCanvasElement {
   const key = `${font}|${color}|${text}`;
-  let spr = cache.get(key);
-  if (spr) return spr;
-  const f = FONTS[font];
-  const w = Math.max(1, measure(text, font) + 2);
-  const h = f.lineH + 2;
-  spr = document.createElement('canvas');
-  spr.width = w;
-  spr.height = h;
-  const ctx = spr.getContext('2d')!;
-  ctx.font = `${f.size}px ${f.family}`;
-  ctx.textBaseline = 'top';
-  ctx.fillStyle = '#fff';
-  ctx.fillText(text, 0, 1);
-  const img = ctx.getImageData(0, 0, w, h);
+  let c = cache.get(key);
+  if (c) return c;
+  const f = fonts[font];
+  const w = Math.max(1, measure(text, font)) + 2;
+  const h = lineHeight(font);
+  c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d')!;
+  const img = ctx.createImageData(w, h);
   const [r, g, b] = hexToRgb(color);
-  const d = img.data;
-  for (let i = 0; i < d.length; i += 4) {
-    const on = d[i + 3] >= 110;
-    d[i] = r;
-    d[i + 1] = g;
-    d[i + 2] = b;
-    d[i + 3] = on ? 255 : 0;
+  let pen = 0;
+  for (const ch of text) {
+    const gl = glyph(f, ch.codePointAt(0)!);
+    const rb = Math.ceil(gl.w / 8);
+    const top = 1 + f.ascent - gl.y - gl.h;
+    for (let yy = 0; yy < gl.h; yy++)
+      for (let xx = 0; xx < gl.w; xx++) {
+        if (!(gl.bits[yy * rb + (xx >> 3)] & (0x80 >> (xx & 7)))) continue;
+        const px = pen + gl.x + xx;
+        const py = top + yy;
+        if (px < 0 || py < 0 || px >= w || py >= h) continue;
+        const i = (py * w + px) * 4;
+        img.data[i] = r;
+        img.data[i + 1] = g;
+        img.data[i + 2] = b;
+        img.data[i + 3] = 255;
+      }
+    pen += gl.dw;
   }
   ctx.putImageData(img, 0, 0);
-  if (cache.size > 4000) cache.clear();
-  cache.set(key, spr);
-  return spr;
+  if (cache.size > 6000) cache.clear();
+  cache.set(key, c);
+  return c;
 }
 
 export interface TextOpts {
@@ -77,35 +119,48 @@ export interface TextOpts {
   shadow?: string;
   outline?: string;
   align?: 'left' | 'center' | 'right';
+  /** Truncate with "…" to fit this width. */
+  maxWidth?: number;
 }
 
-/** Draws pixel text at integer coordinates. Returns the drawn width. */
+/** Fits text into `maxW` pixels, adding an ellipsis if needed. */
+export function fit(text: string, maxW: number, font: FontId = 'body'): string {
+  if (measure(text, font) <= maxW) return text;
+  let s = text;
+  while (s.length > 1 && measure(`${s}…`, font) > maxW) s = s.slice(0, -1);
+  return `${s}…`;
+}
+
+/** Draws pixel text at integer coordinates (top-left of the line box). Returns the width. */
 export function drawText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, o: TextOpts = {}): number {
   const font = o.font ?? 'body';
+  if (o.maxWidth) text = fit(text, o.maxWidth, font);
   const color = o.color ?? '#2b2d4a';
-  const spr = textSprite(text, font, color);
+  const spr = sprite(text, font, color);
   const w = spr.width - 2;
   let dx = Math.round(x);
   if (o.align === 'center') dx = Math.round(x - w / 2);
   else if (o.align === 'right') dx = Math.round(x - w);
   const dy = Math.round(y) - 1;
   if (o.outline) {
-    const out = textSprite(text, font, o.outline);
+    const out = sprite(text, font, o.outline);
     for (const [ox, oy] of [
       [-1, 0],
       [1, 0],
       [0, -1],
       [0, 1],
+      [-1, -1],
+      [1, -1],
+      [-1, 1],
+      [1, 1],
     ])
       ctx.drawImage(out, dx + ox, dy + oy);
-  } else if (o.shadow) {
-    ctx.drawImage(textSprite(text, font, o.shadow), dx, dy + 1);
-  }
+  } else if (o.shadow) ctx.drawImage(sprite(text, font, o.shadow), dx, dy + 1);
   ctx.drawImage(spr, dx, dy);
   return w;
 }
 
-/** Word-wraps text (Korean-aware: breaks on spaces, falls back to characters). */
+/** Word-wraps text (breaks on spaces, falls back to characters for long Korean runs). */
 export function wrap(text: string, maxW: number, font: FontId = 'body'): string[] {
   const out: string[] = [];
   for (const para of text.split('\n')) {
