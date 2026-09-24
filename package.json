@@ -1,0 +1,28 @@
+{
+  "name": "lumina-isle",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Lumina Isle — a romantic pixel-art island farming game (module / server / client monorepo)",
+  "type": "module",
+  "workspaces": [
+    "packages/core",
+    "packages/server",
+    "packages/client"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @lumina/client",
+    "build": "npm run build -w @lumina/client",
+    "preview": "npm run preview -w @lumina/client",
+    "server": "npm run start -w @lumina/server",
+    "typecheck": "tsc -p packages/core --noEmit && tsc -p packages/server --noEmit && tsc -p packages/client --noEmit",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run test"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3",
+    "vitest": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
