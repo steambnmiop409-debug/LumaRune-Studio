@@ -57,11 +57,16 @@ export class TitleScene implements Scene {
     const { width: vw, height: vh } = this.game.screen;
     backdrop().render(ctx, vw, vh, 1 / 60);
     const ui = this.game.ui;
-    // Logo.
+    // Logo over a soft dusk vignette for legibility.
     const ly = Math.round(vh * 0.2);
     ctx.globalAlpha = Math.min(1, this.t / 1.5);
-    const title = document.createElement('canvas');
-    void title;
+    const band = ctx.createLinearGradient(0, ly - 30, 0, ly + 90);
+    band.addColorStop(0, 'rgba(20,22,48,0)');
+    band.addColorStop(0.35, 'rgba(20,22,48,0.5)');
+    band.addColorStop(0.7, 'rgba(20,22,48,0.5)');
+    band.addColorStop(1, 'rgba(20,22,48,0)');
+    ctx.fillStyle = band;
+    ctx.fillRect(0, ly - 30, vw, 120);
     drawBigTitle(ctx, '루미나 아일', vw / 2, ly);
     drawText(ctx, 'LUMINA ISLE', vw / 2, ly + 36, { font: 'bold', color: P.brassLight, outline: P.ink, align: 'center' });
     drawText(ctx, '등대 불빛 아래, 작은 섬의 농장 이야기', vw / 2, ly + 52, { font: 'small', color: P.paperLight, outline: P.ink, align: 'center' });
