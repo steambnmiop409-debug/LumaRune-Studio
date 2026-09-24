@@ -91,7 +91,8 @@ export function itemCard(ui: UI, x: number, y: number, w: number, itemId: string
   if (def.price) {
     yy += 2;
     ctx.drawImage(Sprites.coin(), x, yy + 1);
-    drawText(ctx, formatGold(def.price), x + 12, yy, { font: 'small' });
+    const sells = def.kind === 'artisan' || def.kind === 'gem' || def.kind === 'forage';
+    drawText(ctx, sells ? `판매가 ${formatGold(def.price)}` : formatGold(def.price), x + 12, yy, { font: 'small' });
     yy += 12;
   }
   return yy - y;
