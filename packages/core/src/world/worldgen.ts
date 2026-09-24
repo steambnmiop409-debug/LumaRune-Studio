@@ -54,6 +54,10 @@ const SOLID_OBJECTS: ReadonlySet<ObjectKind> = new Set<ObjectKind>([
   'parasol',
   'sandcastle',
   'buoy',
+  'workbench',
+  'cave',
+  'minecart',
+  'orepile',
 ]);
 
 export function isSolidObject(kind: ObjectKind): boolean {
@@ -430,6 +434,79 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
   const fy = plaza.y + Math.floor(plaza.h / 2) - 1;
   addObject('fountain', fx, fy, 2, 2);
 
+  // ── 5b. Workbench beside the house ─────────────────────────────────────
+  addObject('workbench', house.x + house.w + 7, house.y + house.h - 1, 2, 1);
+  interactables.push({ kind: 'workbench', x: house.x + house.w + 7, y: house.y + house.h - 1 });
+  interactables.push({ kind: 'workbench', x: house.x + house.w + 8, y: house.y + house.h - 1 });
+
+  // ── 5c. The old mine: a cave mouth in the ridge, a quarry floor at its foot ──
+  let quarry: Rect = { x: 0, y: 0, w: 0, h: 0 };
+  {
+    // A straight stretch of ridge face, west of the stairs and clear of the falls.
+    let best: { x: number; y: number } | null = null;
+    let bestD = Infinity;
+    const target = { x: farm.x + 22, y: farm.y - 26 };
+    for (let y = 2; y < farm.y - 6; y++)
+      for (let x = 3; x < W - 8; x++) {
+        let ok = true;
+        for (let k = -2; k <= 4 && ok; k++) {
+          const xx = x + k;
+          if (!lv(xx, y - 1) || T(xx, y) !== Terrain.Cliff || T(xx, y + 1) !== Terrain.Cliff || T(xx, y + 2) !== Terrain.Cliff) ok = false;
+          else if (lv(xx, y + 3) || isWater(T(xx, y + 3)) || T(xx, y + 3) === Terrain.Stairs) ok = false;
+        }
+        if (!ok || (ridgeStairs && Math.abs(x - ridgeStairs.x) < 10)) continue;
+        if (falls.some((f) => Math.abs((f % W) - x) < 10 && Math.abs(Math.floor(f / W) - y) < 6)) continue;
+        const d = Math.hypot(x - target.x, y - target.y);
+        if (d < bestD) {
+          bestD = d;
+          best = { x, y };
+        }
+      }
+    if (best) {
+      const cave = { x: best.x, y: best.y };
+      objects.push({ kind: 'cave', x: cave.x, y: cave.y, w: 3, h: 3, v: Math.floor(hash2(cave.x, cave.y, seed) * 1000) });
+      interactables.push({ kind: 'cave', x: cave.x + 1, y: cave.y + 2 });
+      const floorY = cave.y + 3;
+      // An irregular gravel floor spreading out from the mouth.
+      const qx = cave.x - 7;
+      const qw = 17;
+      const qh = 10;
+      for (let y = floorY; y < floorY + qh; y++)
+        for (let x = qx; x < qx + qw; x++) {
+          const d = Math.hypot((x + 0.5 - (cave.x + 1.5)) / (qw / 2), (y + 0.5 - floorY) / qh) + (valueNoise(x / 3, y / 3, seed + 140) - 0.5) * 0.35;
+          const t = T(x, y);
+          if (d > 1 || lv(x, y) || isWater(t) || t === Terrain.Cliff || t === Terrain.Stairs || solid[idx(x, y)]) continue;
+          setT(x, y, Terrain.Rock);
+          zone[idx(x, y)] = Zone.Quarry;
+          reserve(x, y);
+        }
+      quarry = { x: qx, y: floorY + 1, w: qw, h: qh - 1 };
+      // Mine-cart track out of the mouth, a cart at the end and a heap of spoil.
+      for (let k = 0; k < 5; k++) addObject('rail', cave.x + 1, floorY + k);
+      addObject('minecart', cave.x + 1, floorY + 5);
+      addObject('orepile', cave.x + 3, floorY + 1, 2, 1);
+      addObject('crate', cave.x - 1, floorY + 1);
+      addObject('lamp', cave.x - 1, floorY);
+      // The miner's log cabin beside the quarry.
+      for (const [cx, cy] of [
+        [qx - 7, floorY + 1],
+        [qx + qw + 1, floorY + 1],
+        [qx - 7, floorY + 5],
+      ]) {
+        let free = true;
+        for (let y = cy - 2; y < cy + 6 && free; y++)
+          for (let x = cx - 1; x < cx + 7 && free; x++) if (!inb(x, y) || lv(x, y) || isWater(T(x, y)) || T(x, y) === Terrain.Cliff || solid[idx(x, y)] || reserved[idx(x, y)]) free = false;
+        if (free) {
+          addBuilding('cabin', cx, cy, 5, 4, 2);
+          addObject('woodpile', cx + 5, cy + 3, 2, 1);
+          break;
+        }
+      }
+      for (let y = floorY; y < floorY + qh; y++)
+        for (let x = qx - 8; x < qx + qw + 8; x++) if (inb(x, y) && !isWater(T(x, y)) && !lv(x, y) && zone[idx(x, y)] === Zone.None) zone[idx(x, y)] = Zone.Quarry;
+    }
+  }
+
   // ── 6. Harbour pier and ship ───────────────────────────────────────────
   const dockX = plaza.x + Math.floor(plaza.w / 2);
   let shoreY = plaza.y + plaza.h;
@@ -580,6 +657,7 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
   } else road(gateNorth.x, gateNorth.y, forestC.x - 6, forestC.y + 8, Terrain.Path);
   void hillStairs;
   road(gateSouth.x, gateSouth.y + 1, beachC.x + 6, beachC.y - 8, Terrain.Path);
+  if (quarry.w) road(gateNorth.x - 1, gateNorth.y - 1, quarry.x + Math.floor(quarry.w / 2) - 3, quarry.y + quarry.h - 2, Terrain.Path);
   // Little path from the house door to the east gate.
   road(spawn.x, spawn.y, gateEast.x - 1, gateEast.y, Terrain.Path);
 
@@ -997,6 +1075,7 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
     roads: roadStrokes,
     level,
     falls,
+    quarry,
   };
 }
 

@@ -630,9 +630,9 @@ export class PackingPanel implements Panel {
     drawText(c, '포장대', x + 12, y + 8, { font: 'title' });
     drawText(c, '같은 작물·같은 품질을 한 상자에 최대 30개까지 담아요.', x + 12, y + 28, { font: 'small', color: P.inkSoft });
     if (closeButton(ui, x + W - 18, y + 5)) this.closed = true;
-    const packable = (id: string) => getItem(id).kind === 'produce' || getItem(id).kind === 'forage';
+    const packable = (id: string) => ['produce', 'forage', 'artisan', 'gem'].includes(getItem(id).kind);
     const produce = p.inv.map((s, i) => [s, i] as const).filter(([s]) => s && packable(s.id));
-    if (!produce.length) drawText(c, '가방에 작물이나 채집물이 없어요.', x + 12, y + 50, { color: P.inkSoft });
+    if (!produce.length) drawText(c, '가방에 출하할 물건이 없어요.', x + 12, y + 50, { color: P.inkSoft });
     produce.forEach(([s, i], k) => {
       const sx = x + 12 + (k % 8) * 26;
       const sy = y + 46 + Math.floor(k / 8) * 26;
@@ -648,7 +648,7 @@ export class PackingPanel implements Panel {
     const s = this.sel >= 0 ? p.inv[this.sel] : null;
     if (s && packable(s.id)) {
       const def = getItem(s.id);
-      const cid = def.kind === 'forage' ? s.id : def.cropId!;
+      const cid = def.kind === 'produce' ? def.cropId! : s.id;
       const cr = { id: cid, name: def.name };
       const by = y + H - 40;
       icon2x(c, Sprites.icon(s.id), x + 12, by - 6);

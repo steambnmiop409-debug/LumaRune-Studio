@@ -5,6 +5,7 @@ import { evaporate, growCropOneDay } from '../farming/growth';
 import { addItem, emptyInventory } from '../inventory/inventory';
 import { Rng } from '../math/rng';
 import { regrowWeeds, scatterDebris } from './debris';
+import { morningMachines, spawnNodes } from './machines';
 import { newRequest, spawnForage } from './social';
 import type { Appearance } from '../player/appearance';
 import type { DaySummary } from '../protocol/messages';
@@ -14,7 +15,7 @@ import { generateDayWeather, isPrecipitating, isWet } from '../weather/weather';
 import { TILE } from '../world/tiles';
 import type { WorldMap } from '../world/types';
 
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 export const START_GOLD = 500;
 export const MAX_STAMINA = 100;
 
@@ -46,9 +47,11 @@ export function createWorldState(seed: number, rng: Rng, map?: WorldMap): WorldS
     forage: {},
     request: null,
     debris: {},
+    nodes: {},
   };
   if (map) {
     scatterDebris(state, map, rng);
+    spawnNodes(state, map, rng);
     spawnForage(state, map, rng);
   }
   newRequest(state, rng);
@@ -192,6 +195,8 @@ export function advanceDay(state: WorldState, map: WorldMap, rng: Rng, passedOut
   state.ship.present = true;
   state.departedToday = false;
   changed.push(...runSprinklers(state, map));
+  changed.push(...morningMachines(state, map, rng));
+  spawnNodes(state, map, rng);
   spawnForage(state, map, rng);
   newRequest(state, rng);
   regrowWeeds(state, map, rng);

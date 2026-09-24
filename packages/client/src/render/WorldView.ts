@@ -55,6 +55,10 @@ export interface ViewInput {
   boardFresh: boolean;
   /** Farm debris by tile key. */
   debris: Record<number, 'weed' | 'stone' | 'twig'>;
+  /** Quarry outcrops by tile key. */
+  nodes: Record<number, string>;
+  /** Absolute game minute (day × 1440 + minute), for machine timers. */
+  now: number;
 }
 
 interface Drawable {
@@ -63,7 +67,8 @@ interface Drawable {
 }
 
 const TREE_KINDS = new Set(['oak', 'pine', 'blossom', 'palm', 'fruittree']);
-const LANDMARKS = new Set(['tent', 'campfire', 'logseat', 'woodpile', 'ruin', 'shrine', 'tidepool', 'gazebo', 'parasol', 'sandcastle', 'buoy']);
+const LANDMARKS = new Set(['tent', 'campfire', 'logseat', 'woodpile', 'ruin', 'shrine', 'tidepool', 'gazebo', 'parasol', 'sandcastle', 'buoy', 'cave', 'rail', 'minecart', 'orepile', 'workbench']);
+const SPRINKLERS = new Set(['sprinkler1', 'sprinkler2', 'sprinkler3']);
 
 export class WorldView {
   readonly terrain: TerrainRenderer;
@@ -101,6 +106,21 @@ export class WorldView {
     const maxY = this.map.h * TILE - vh;
     this.camX = Math.max(0, Math.min(maxX, x - vw / 2));
     this.camY = Math.max(0, Math.min(maxY, y - vh / 2));
+  }
+
+  /** A little speech bubble with an item icon, bobbing over a machine that's done. */
+  private bubble(ctx: CanvasRenderingContext2D, icon: HTMLCanvasElement, x: number, y: number) {
+    const bob = Math.round(Math.sin(this.time * 3) * 1.5);
+    const bx = Math.round(x - 11);
+    const by = Math.round(y - 22 + bob);
+    ctx.fillStyle = '#2b2d4a';
+    ctx.fillRect(bx, by, 22, 20);
+    ctx.fillStyle = '#fbf3e0';
+    ctx.fillRect(bx + 1, by + 1, 20, 18);
+    ctx.fillRect(bx + 9, by + 20, 4, 1);
+    ctx.fillStyle = '#2b2d4a';
+    ctx.fillRect(bx + 10, by + 21, 2, 2);
+    ctx.drawImage(icon, bx + 3, by + 2);
   }
 
   private season(day: number): SeasonLook {
@@ -192,7 +212,7 @@ export class WorldView {
       // Morning sprinkler spray.
       if (input.minute >= 360 && input.minute < 385)
         for (const p of input.placed)
-          if (p.kind !== 'cover' && Math.random() < 0.6) {
+          if (SPRINKLERS.has(p.kind) && Math.random() < 0.6) {
             const a = Math.random() * Math.PI * 2;
             this.particles.spawn({ x: p.x * TILE + 8, y: p.y * TILE + 4, vx: Math.cos(a) * 30, vy: Math.sin(a) * 15 - 25, g: 90, max: 0.6, color: '#a8e0f8' });
           }
@@ -304,9 +324,11 @@ export class WorldView {
         else if (o.kind === 'shrine') frame = lit ? 1 : 0;
         else if (o.kind === 'tidepool') frame = Math.floor(this.time * 1.5 + o.x) % 2;
         else if (o.kind === 'buoy') frame = Math.sin(this.time * 1.6 + o.x) > 0.3 ? 1 : 0;
+        else if (o.kind === 'cave') frame = lit ? 1 : 0;
         const img = Sprites.landmark(o.kind, o.v, frame);
-        const flat = o.kind === 'tidepool';
-        if (!flat && o.kind !== 'campfire' && o.kind !== 'buoy' && o.kind !== 'parasol') shadow(bx + w / 2, by + h - 2, w / 2 - 1, 2.5);
+        const flat = o.kind === 'tidepool' || o.kind === 'rail';
+        if (!flat && o.kind !== 'campfire' && o.kind !== 'buoy' && o.kind !== 'parasol' && o.kind !== 'cave') shadow(bx + w / 2, by + h - 2, w / 2 - 1, 2.5);
+        if (o.kind === 'cave' && lit) lights.push({ x: bx + 34 - cx, y: by + 20 - cy, r: 30, color: '#ffd070' });
         if (o.kind === 'buoy' && lit) lights.push({ x: bx + 6 - cx, y: by - 1 - cy, r: 14, color: '#fff0a0', a: Math.sin(this.time * 3 + o.x) > 0 ? 0.9 : 0.2 });
         const bob = o.kind === 'buoy' ? Math.round(Math.sin(this.time * 1.6 + o.x) * 1.2) : 0;
         const ix = bx + Math.floor((w - img.width) / 2) - cx;
@@ -503,8 +525,50 @@ export class WorldView {
           drawables.push({ y: (p.y + dy) * TILE + 14, draw: () => ctx.drawImage(post, (p.x + dx) * TILE + 6 - cx, (p.y + dy) * TILE + 14 - 18 - cy) });
         continue;
       }
-      const img = Sprites.sprinkler(Number(p.kind.slice(-1)) as 1 | 2 | 3);
-      drawables.push({ y: by + 12, draw: () => ctx.drawImage(img, bx - cx, by - cy) });
+      if (SPRINKLERS.has(p.kind)) {
+        const img = Sprites.sprinkler(Number(p.kind.slice(-1)) as 1 | 2 | 3);
+        drawables.push({ y: by + 12, draw: () => ctx.drawImage(img, bx - cx, by - cy) });
+        continue;
+      }
+      // Machines: animate while working, show what's ready in a bobbing bubble.
+      const working = !!p.work && input.now < p.work.ready;
+      const ready = (!!p.work && input.now >= p.work.ready) || (p.kind === 'harvester' && !!p.store?.some((s) => s));
+      let state = 0;
+      if (p.kind === 'furnace' && working) state = 1 + (Math.floor(this.time * 6) % 3);
+      else if ((p.kind === 'compost' || p.kind === 'jar') && p.work) state = 1;
+      else if (p.kind === 'seedmaker' && working) state = Math.floor(this.time * 6) % 4;
+      else if (p.kind === 'harvester') state = Math.floor(this.time * 2) % 4;
+      const img = Sprites.machine(p.kind, p.id, state);
+      shadow(bx + 8, by + 14, 6, 2);
+      drawables.push({
+        y: by + 14,
+        draw: () => {
+          ctx.drawImage(img, bx + 8 - Math.floor(img.width / 2) - cx, by + TILE - img.height - cy);
+          if (ready) {
+            const out = p.work?.out[0]?.id ?? p.store?.find((s) => s)?.id;
+            if (out) this.bubble(ctx, Sprites.icon(out), bx + 8 - cx, by + TILE - img.height - 4 - cy);
+          }
+        },
+      });
+      if (p.kind === 'furnace' && working) {
+        lights.push({ x: bx + 8 - cx, y: by + 8 - cy, r: 26, color: '#ffa040' });
+        if (Math.random() < 0.05) this.particles.spawn({ kind: 'smoke', x: bx + 12, y: by - 8, vy: -10, max: 2, color: '#9a9aa8' });
+      }
+      if ((p.kind === 'keg' || p.kind === 'jar' || p.kind === 'compost') && working && Math.random() < 0.02)
+        this.particles.spawn({ kind: 'sparkle', x: bx + 4 + Math.random() * 8, y: by - 2, vy: -8, max: 0.8, color: p.kind === 'compost' ? '#c8e0a0' : '#ffffff' });
+      if (p.kind === 'beehouse' && !input.raining && this.dark < 0.3 && Math.random() < 0.04)
+        this.particles.spawn({ x: bx + 8, y: by + 2, vx: (Math.random() - 0.5) * 30, vy: -10, max: 1.5, color: '#f5d040' });
+    }
+
+    // Quarry outcrops.
+    for (const key of Object.keys(input.nodes)) {
+      const k = Number(key);
+      const ox = (k % map.w) * TILE;
+      const oy = Math.floor(k / map.w) * TILE;
+      if (ox < cx - TILE || oy < cy - TILE || ox > cx + vw + TILE || oy > cy + vh + TILE) continue;
+      const img = Sprites.outcrop(input.nodes[k], k);
+      shadow(ox + 8, oy + 13, 7, 2);
+      drawables.push({ y: oy + 12, draw: () => ctx.drawImage(img, ox + 8 - Math.floor(img.width / 2) - cx, oy + TILE - img.height - cy) });
     }
 
     // Ship.

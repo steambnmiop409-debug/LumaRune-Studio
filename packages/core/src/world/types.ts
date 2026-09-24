@@ -52,7 +52,12 @@ export type ObjectKind =
   | 'gazebo'
   | 'parasol'
   | 'sandcastle'
-  | 'buoy';
+  | 'buoy'
+  | 'workbench'
+  | 'cave'
+  | 'rail'
+  | 'minecart'
+  | 'orepile';
 
 /** Decorative / blocking object anchored at a tile. */
 export interface WorldObject {
@@ -66,7 +71,7 @@ export interface WorldObject {
   v: number;
 }
 
-export type BuildingKind = 'house' | 'seedShop' | 'toolShop' | 'cottage' | 'lighthouse' | 'windmill' | 'harborOffice';
+export type BuildingKind = 'house' | 'seedShop' | 'toolShop' | 'cottage' | 'lighthouse' | 'windmill' | 'harborOffice' | 'cabin';
 
 export interface Building {
   id: string;
@@ -80,7 +85,7 @@ export interface Building {
   v: number;
 }
 
-export type InteractKind = 'seedShop' | 'toolShop' | 'ship' | 'packing' | 'bed' | 'well' | 'board';
+export type InteractKind = 'seedShop' | 'toolShop' | 'ship' | 'packing' | 'bed' | 'well' | 'board' | 'workbench' | 'cave';
 
 export interface Interactable {
   kind: InteractKind;
@@ -122,6 +127,8 @@ export interface WorldMap {
   level: Uint8Array;
   /** Tile keys where the river pours over a cliff face. */
   falls: number[];
+  /** Quarry floor where ore outcrops appear each morning (empty rect if none). */
+  quarry: Rect;
 }
 
 export type ZoneAt = (x: number, y: number) => ZoneId;

@@ -24,3 +24,5 @@ export * from './data/npcs';
 export * from './sim/npc';
 export * from './sim/social';
 export * from './sim/debris';
+export * from './sim/machines';
+export * from './data/crafting';

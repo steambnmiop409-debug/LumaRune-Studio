@@ -1,6 +1,6 @@
 import type { ShopId } from '../data/shops';
 import type { Appearance } from '../player/appearance';
-import type { DeathReason, DebrisKind, Dir, Friendship, PlacedObject, PlayerState, ShipmentRecord, SoilState, VillageRequest, WorldState } from '../state/types';
+import type { DeathReason, DebrisKind, Dir, Friendship, NodeKind, PlacedObject, PlayerState, ShipmentRecord, SoilState, VillageRequest, WorldState } from '../state/types';
 import type { Clock } from '../time/calendar';
 import type { DayWeather } from '../weather/weather';
 
@@ -28,6 +28,8 @@ export type ClientMessage =
   | { t: 'pause'; on: boolean }
   | { t: 'deliver' }
   | { t: 'sort' }
+  | { t: 'craft'; recipe: string }
+  | { t: 'chest'; id: number; from: 'inv' | 'chest'; slot: number }
   | { t: 'debug'; cmd: string; arg?: number };
 
 export interface PlayerPublic {
@@ -59,7 +61,7 @@ export type GameEvent =
   | { t: 'openShop'; shop: ShopId; stock: string[] }
   | { t: 'openPacking' }
   | { t: 'sleepPrompt' }
-  | { t: 'fx'; kind: 'till' | 'water' | 'plant' | 'fert' | 'refill' | 'clear' | 'break' | 'chop' | 'place' | 'pickup' | 'tonic'; x: number; y: number; by: string }
+  | { t: 'fx'; kind: 'till' | 'water' | 'plant' | 'fert' | 'refill' | 'clear' | 'break' | 'chop' | 'mine' | 'load' | 'place' | 'pickup' | 'tonic'; x: number; y: number; by: string }
   | { t: 'harvest'; x: number; y: number; cropId: string; q: number; qty: number; by: string }
   | { t: 'shipLoaded'; crates: number; by: string }
   | { t: 'shipDeparted'; record: ShipmentRecord }
@@ -69,6 +71,11 @@ export type GameEvent =
   | { t: 'dialogue'; npc: string; text: string; hearts: number; gift?: 'loved' | 'liked' | 'neutral' | 'disliked' }
   | { t: 'openBoard' }
   | { t: 'forage'; x: number; y: number; item: string }
+  /** Items that went into the bag from a machine, outcrop or debris (for the pickup animation). */
+  | { t: 'gain'; item: string; qty: number; x: number; y: number }
+  | { t: 'crafted'; item: string; qty: number }
+  | { t: 'openCraft' }
+  | { t: 'openChest'; id: number }
   | { t: 'saved' };
 
 export type ServerMessage =
@@ -80,7 +87,7 @@ export type ServerMessage =
   | { t: 'placed'; placed: PlacedObject[] }
   | { t: 'self'; player: PlayerState; gold: number; lifetime: number; discovered: string[] }
   | { t: 'social'; npcs: Record<string, Friendship>; forage: Record<number, string>; request: VillageRequest | null }
-  | { t: 'debris'; debris: Record<number, DebrisKind> }
+  | { t: 'debris'; debris: Record<number, DebrisKind>; nodes: Record<number, NodeKind> }
   | { t: 'event'; e: GameEvent }
   /** Server rejected a move; snap the local player back here. */
   | { t: 'correct'; x: number; y: number }

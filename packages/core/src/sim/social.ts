@@ -124,6 +124,16 @@ export function spawnForage(state: WorldState, map: WorldMap, rng: Rng): void {
     }
   }
   dropFruit(state, map, rng, season);
+  // Fallen branches in the woods: the island's supply of wood.
+  let wood = 0;
+  for (let tries = 0; tries < 3000 && wood < 10; tries++) {
+    const x = rng.int(2, map.w - 3);
+    const y = rng.int(2, map.h - 3);
+    const i = y * map.w + x;
+    if (map.solid[i] || state.forage[i] || map.terrain[i] !== Terrain.Forest) continue;
+    state.forage[i] = 'mat.wood';
+    wood++;
+  }
 }
 
 /** Summer and autumn mornings: ripe fruit lies under the orchard trees. */

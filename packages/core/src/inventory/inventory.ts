@@ -101,7 +101,7 @@ export function swapSlots(inv: Array<ItemStack | null>, a: number, b: number): v
   inv[b] = sa;
 }
 
-const KIND_ORDER = ['tool', 'seed', 'fertilizer', 'tonic', 'placeable', 'crate', 'produce', 'forage', 'upgrade'];
+const KIND_ORDER = ['tool', 'seed', 'fertilizer', 'tonic', 'placeable', 'crate', 'material', 'produce', 'forage', 'artisan', 'gem', 'upgrade'];
 
 /** Tidies the backpack (the hotbar stays as the player arranged it): merges stacks, then orders by kind, name and quality. */
 export function sortBackpack(inv: Array<ItemStack | null>): void {

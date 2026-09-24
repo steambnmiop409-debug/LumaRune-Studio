@@ -128,6 +128,7 @@ export class ClientWorld {
       }
       case 'debris':
         this.state.debris = msg.debris;
+        this.state.nodes = msg.nodes;
         break;
       case 'social':
         this.state.npcs = msg.npcs;

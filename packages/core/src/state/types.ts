@@ -44,7 +44,16 @@ export interface PlacedObject {
   kind: PlaceableKind;
   x: number;
   y: number;
+  /** A machine's current batch: what comes out and when (absolute game minute: day × 1440 + minute). */
+  work?: { out: ItemStack[]; ready: number } | null;
+  /** Storage slots (chest, auto-harvester). */
+  store?: Array<ItemStack | null>;
+  /** Bee house: days of nectar gathered toward the next jar. */
+  days?: number;
 }
+
+/** Mineable outcrops in the quarry. */
+export type NodeKind = 'stone' | 'coal' | 'copper' | 'iron' | 'gem';
 
 export interface ItemStack {
   id: string;
@@ -130,6 +139,8 @@ export interface WorldState {
   request: VillageRequest | null;
   /** Weeds, stones and twigs on the farm, keyed by tile index. */
   debris: Record<number, DebrisKind>;
+  /** Ore and stone outcrops in the quarry, keyed by tile index. */
+  nodes: Record<number, NodeKind>;
 }
 
 export type DebrisKind = 'weed' | 'stone' | 'twig';

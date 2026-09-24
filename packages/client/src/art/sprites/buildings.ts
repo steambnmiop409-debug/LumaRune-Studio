@@ -20,7 +20,7 @@ export interface BuildingSprite {
   smoke: Array<{ x: number; y: number }>;
 }
 
-type WallStyle = 'plaster' | 'plank' | 'stone' | 'timber';
+type WallStyle = 'plaster' | 'plank' | 'stone' | 'timber' | 'log';
 
 class Painter {
   p: Pix;
@@ -32,7 +32,7 @@ class Painter {
     this.n = new Pix(w, h);
   }
 
-  roof(x0: number, y0: number, w: number, h: number, color: string, style: 'tile' | 'slate' | 'thatch' = 'tile', inset = 5, moss = false) {
+  roof(x0: number, y0: number, w: number, h: number, color: string, style: 'tile' | 'slate' | 'thatch' | 'shake' = 'tile', inset = 5, moss = false) {
     const p = this.p;
     const hi = light(color, 1);
     const hi2 = light(color, 2);
@@ -50,7 +50,15 @@ class Painter {
         const off = (r & 1) * 3;
         const lx = (x - x0 + off) % 6;
         let c = color;
-        if (style === 'thatch') {
+        if (style === 'shake') {
+          // Split-wood shakes: uneven lengths, each with a lit edge and a dark gap.
+          const tileId = Math.floor((x - x0 + off) / 4);
+          const k = hash2(tileId, r, 29);
+          c = k < 0.2 ? hi : k > 0.8 ? lo : color;
+          if (ly === rowH - 1 || (x - x0 + off) % 4 === 0) c = lo2;
+          else if (ly === 0) c = hi;
+          if (moss && hash2(tileId >> 1, r >> 1, 30) < 0.14 && ly !== rowH - 1) c = '#6f9a48';
+        } else if (style === 'thatch') {
           c = hash2(x, y, 3) < 0.3 ? hi : hash2(x, y, 4) < 0.2 ? lo : color;
           if (ly === rowH - 1) c = lo;
         } else {
@@ -82,6 +90,14 @@ class Painter {
     for (let y = y0; y < y0 + h; y++)
       for (let x = x0; x < x0 + w; x++) {
         let c = color;
+        if (style === 'log') {
+          // Stacked round logs: lit top, shaded underside, dark chinking between.
+          const ly = (y - y0) % 6;
+          c = ly === 5 ? '#4a3226' : ly === 0 ? light(color, 1) : ly >= 4 ? shade(color, 1) : color;
+          if (ly > 0 && ly < 5 && hash2(x >> 2, Math.floor((y - y0) / 6), 27) < 0.12) c = shade(color, 1);
+          p.set(x, y, c);
+          continue;
+        }
         if (style === 'plank') {
           if ((y - y0) % 4 === 3) c = lo;
           else if ((y - y0) % 4 === 0) c = hi;
@@ -124,6 +140,16 @@ class Painter {
       for (let x = x0; x < x0 + w; x += 16) p.rect(x, y0 + 2, 2, h - 4, beam);
       p.rect(x0, y0 + 2, w, 2, beam);
       p.rect(x0 + w - 2, y0 + 2, 2, h - 4, beam);
+    }
+    if (style === 'log') {
+      // Notched log ends poking out at both corners.
+      for (let yy = y0 + 3; yy < y0 + h - 4; yy += 6)
+        for (const ex of [x0 - 2, x0 + w - 1]) {
+          p.rect(ex, yy, 3, 4, '#c89a62');
+          p.set(ex + 1, yy + 1, '#8a6a42');
+          p.set(ex + 1, yy + 2, '#a8804e');
+          p.rect(ex, yy + 4, 3, 1, '#5a3a26');
+        }
     }
     // Corner shading.
     for (let y = y0 + 2; y < y0 + h - 2; y++) {
@@ -358,6 +384,33 @@ function cottage(b: Building): BuildingSprite {
   return { ...d, ox: -2, oy: 0 };
 }
 
+/** The miner's log cabin by the quarry: round-log walls, shake roof, stone chimney. */
+function cabin(b: Building): BuildingSprite {
+  const { w, h, pt } = base(b, 32);
+  const wallH = 30;
+  const wallY = h - wallH;
+  // Fieldstone chimney up the side.
+  const p = pt.p;
+  for (let y = 4; y < h - 2; y++)
+    for (let x = w - 14; x < w - 7; x++) {
+      const row = Math.floor(y / 4);
+      const edge = y % 4 === 0 || (x + (row & 1) * 2) % 4 === 0;
+      p.set(x, y, edge ? '#5e5650' : hash2(Math.floor((x + (row & 1) * 2) / 4), row, 5) < 0.5 ? '#a09890' : '#8a8078');
+    }
+  pt.smoke.push({ x: w - 10, y: 3 });
+  pt.roof(0, 10, w, wallY - 8, '#8a6040', 'shake', 4, true);
+  pt.wall(3, wallY, w - 6, wallH, '#a8784a', 'log');
+  const doorX = 3 + TILE * (b.door!.x - b.x) + 1;
+  pt.door(doorX, h - 22, 12, 20, '#6e4a34');
+  pt.window(9, wallY + 9, 10, 9, undefined, '#5a7a4a');
+  // Lantern by the door and an axe in a stump.
+  p.rect(doorX + 14, wallY + 8, 3, 4, '#ffd870');
+  p.rect(doorX + 14, wallY + 7, 3, 1, '#3a3a4a');
+  pt.lights.push({ x: doorX + 15, y: wallY + 10, r: 22, color: '#ffc873' });
+  const d = pt.done();
+  return { ...d, ox: -2, oy: 0 };
+}
+
 function harborOffice(b: Building): BuildingSprite {
   const { w, h, pt } = base(b, 30);
   const wallH = 32;
@@ -485,6 +538,8 @@ export function buildingSprite(b: Building): BuildingSprite {
   switch (b.kind) {
     case 'house':
       return house(b);
+    case 'cabin':
+      return cabin(b);
     case 'seedShop':
       return seedShop(b);
     case 'toolShop':

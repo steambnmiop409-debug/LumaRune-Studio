@@ -1,4 +1,21 @@
-import { findCrop, getItem, type Appearance, type Building, type WeatherKind } from '@lumina/core';
+import { findCrop, getItem, isMachine, parseArtisan, type Appearance, type Building, type WeatherKind } from '@lumina/core';
+
+/** Colour of an artisan good's contents, from what it was made of. */
+const FORAGE_COLOR: Record<string, string> = {
+  'forage.apple': '#d8403a',
+  'forage.peach': '#f0a050',
+  'forage.pear': '#c8d050',
+  'forage.plum': '#8a3a78',
+  'forage.wildberry': '#b82a58',
+  'forage.chanterelle': '#f0b040',
+  'forage.morel': '#9a7048',
+  'forage.wildflower': '#e888c8',
+};
+function sourceColor(source: string | null): string {
+  if (!source) return '#f0b030';
+  if (source.startsWith('crop.')) return findCrop(source.slice(5))?.produceColor ?? '#c8a060';
+  return FORAGE_COLOR[source] ?? '#c8a060';
+}
 import { buildingSprite, windmillSails, type BuildingSprite } from './sprites/buildings';
 import { characterSheet, type CharacterSheet } from './sprites/character';
 import { cropSprite, deadCropSprite, produceIcon, seedIcon } from './sprites/crops';
@@ -6,6 +23,7 @@ import { ITEM_ICONS } from './sprites/items';
 import { forageGround, forageIcon, noticeBoard } from './sprites/forage';
 import * as landmarks from './sprites/landmarks';
 import { fieldStone, twig, weed } from './sprites/debris';
+import * as machines from './sprites/machines';
 import { birch, broadleaf, cherry, conifer, shrub } from './sprites/foliage';
 import { Pix } from './Pix';
 import { pack as packColor } from './palette';
@@ -77,6 +95,16 @@ class SpriteCache {
           return landmarks.sandcastle(v);
         case 'buoy':
           return landmarks.buoy(v, frame);
+        case 'cave':
+          return machines.caveMouth(v, frame === 1);
+        case 'rail':
+          return machines.rail(v);
+        case 'minecart':
+          return machines.minecart(v);
+        case 'orepile':
+          return machines.orePile(v);
+        case 'workbench':
+          return machines.workbench(v);
         default:
           return landmarks.gazebo(v);
       }
@@ -232,6 +260,12 @@ class SpriteCache {
       if (def.kind === 'seed') return seedIcon(findCrop(def.cropId!)!);
       if (def.kind === 'produce') return produceIcon(findCrop(def.cropId!)!);
       if (def.kind === 'forage') return forageIcon(id) ?? props.crate();
+      if (machines.MATERIAL_ICONS[id]) return machines.MATERIAL_ICONS[id]();
+      if (def.kind === 'artisan') {
+        const a = parseArtisan(id)!;
+        return machines.artisanIcon(a.type, sourceColor(a.source));
+      }
+      if (def.placeable && isMachine(def.placeable)) return machines.machineIcon(def.placeable);
       if (def.placeable?.startsWith('sprinkler')) return props.sprinkler(Number(def.placeable.slice(-1)) as 1 | 2 | 3);
       const make = ITEM_ICONS[id];
       return make ? make() : props.crate();
@@ -240,6 +274,32 @@ class SpriteCache {
 
   debris(kind: 'weed' | 'stone' | 'twig', v: number, frame = 0) {
     return this.get(`debris:${kind}:${v}:${frame}`, () => (kind === 'weed' ? weed(v, frame) : kind === 'stone' ? fieldStone(v) : twig(v)));
+  }
+  /** A placed machine; `state` animates it (furnace glow, crank, reaping arms, fullness). */
+  machine(kind: string, v: number, state = 0) {
+    return this.get(`machine:${kind}:${v}:${state}`, () => {
+      switch (kind) {
+        case 'chest':
+          return machines.chest(v);
+        case 'compost':
+          return machines.compost(v, state > 0);
+        case 'furnace':
+          return machines.furnace(v, state);
+        case 'jar':
+          return machines.jar(v, state > 0);
+        case 'keg':
+          return machines.keg(v);
+        case 'seedmaker':
+          return machines.seedMaker(v, state);
+        case 'beehouse':
+          return machines.beehouse(v);
+        default:
+          return machines.harvester(v, state);
+      }
+    });
+  }
+  outcrop(kind: string, v: number) {
+    return this.get(`outcrop:${kind}:${v}`, () => machines.outcrop(kind, v));
   }
   board(fresh: boolean) {
     return this.get(`board:${fresh}`, () => noticeBoard(fresh));

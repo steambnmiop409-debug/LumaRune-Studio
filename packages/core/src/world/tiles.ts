@@ -35,6 +35,7 @@ export const Zone = {
   Orchard: 9,
   Camp: 10,
   Falls: 11,
+  Quarry: 12,
 } as const;
 export type ZoneId = (typeof Zone)[keyof typeof Zone];
 
@@ -51,6 +52,7 @@ export const ZONE_NAME: Record<ZoneId, string> = {
   9: '햇살 과수원',
   10: '숲속 야영지',
   11: '은빛 폭포',
+  12: '바람골 채석장',
 };
 
 export function isWater(t: number): boolean {

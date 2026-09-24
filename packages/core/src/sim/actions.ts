@@ -2,7 +2,7 @@ import { getCrop } from '../data/crops';
 import { CAN_CAPACITY, FERTILIZER_EFFECT, getItem } from '../data/items';
 import { SHOPS, TOOL_SHOP_STOCK, seedShopStock, type ShopId } from '../data/shops';
 import { CART_CAPACITY, CRATE_CAPACITY } from '../economy/market';
-import { isReady, newCrop, rollQuality, rollYield } from '../farming/growth';
+import { isReady, newCrop } from '../farming/growth';
 import { addItem, canFit, countItem, removeItem, takeFromSlot } from '../inventory/inventory';
 import type { Rng } from '../math/rng';
 import type { GameEvent } from '../protocol/messages';
@@ -13,6 +13,9 @@ import type { InteractKind, WorldMap } from '../world/types';
 import { canTill, newSoil, placedAt } from './world';
 import { gift, npcAt, pickForage, talk } from './social';
 import { DEBRIS_NAME, weedFind } from './debris';
+import { NODE_NAME, applyHarvest, chestMove, collectMachine, giveAll, loadMachine, nodeDrops, rollHarvest } from './machines';
+import { isMachine } from '../data/items';
+export { chestMove };
 
 /** Max distance (px) from the player's feet to a tile centre for tool use / interaction. */
 export const REACH_PX = 30;
@@ -85,15 +88,46 @@ export function useItem(ctx: SimContext, p: PlayerState, slot: number, x: number
     if (npc) return gift(ctx, p, npc, slot);
   }
 
-  // Clearing farm debris: the hoe breaks up anything, the scythe cuts weeds.
+  // Machines: feed them what you're holding, or take an empty one back with the pickaxe.
+  const machine = placedAt(state, x, y);
+  if (machine && isMachine(machine.kind)) {
+    if (def.tool === 'pick') {
+      const busy = machine.work || (machine.store ?? []).some((s) => s);
+      if (busy) return '비어 있는 장비만 회수할 수 있어요.';
+      if (!canFit(p.inv, `place.${machine.kind}`, 1)) return '가방이 가득 찼어요.';
+      state.placed = state.placed.filter((o) => o !== machine);
+      addItem(p.inv, `place.${machine.kind}`, 1);
+      ctx.touchPlaced();
+      ctx.touchPlayer(p.id);
+      ctx.emit({ t: 'fx', kind: 'pickup', x, y, by: p.id }, 'all');
+      return null;
+    }
+    if (def.kind === 'tool') return null;
+    if (machine.kind === 'chest' || machine.kind === 'beehouse' || machine.kind === 'harvester') return interact(ctx, p, x, y);
+    return loadMachine(ctx, p, machine, slot);
+  }
+  // Quarry outcrops need the pickaxe.
+  const node = state.nodes[key];
+  if (node) {
+    if (def.tool !== 'pick') return def.kind === 'tool' ? `${NODE_NAME[node]}은(는) 곡괭이로 깰 수 있어요.` : null;
+    if (!spendStamina(p, 4)) return '너무 지쳤어요. 오늘은 쉬어야 해요.';
+    delete state.nodes[key];
+    giveAll(ctx, p, nodeDrops(node, ctx.rng), x, y);
+    ctx.touchDebris?.();
+    ctx.touchPlayer(p.id);
+    ctx.emit({ t: 'fx', kind: 'mine', x, y, by: p.id }, 'all');
+    return null;
+  }
+  // Clearing farm debris: hoe or pickaxe break up anything, the scythe cuts weeds.
   const debris = state.debris[key];
-  if (debris && def.kind === 'tool' && (def.tool === 'hoe' || (def.tool === 'scythe' && debris === 'weed'))) {
-    const cost = debris === 'stone' ? 3 : debris === 'twig' ? 2 : 1;
+  if (debris && def.kind === 'tool' && (def.tool === 'hoe' || def.tool === 'pick' || (def.tool === 'scythe' && debris === 'weed'))) {
+    const cost = debris === 'stone' ? (def.tool === 'pick' ? 2 : 3) : debris === 'twig' ? 2 : 1;
     if (!spendStamina(p, cost)) return '너무 지쳤어요. 오늘은 쉬어야 해요.';
     delete state.debris[key];
     ctx.touchDebris?.();
     ctx.touchPlayer(p.id);
     ctx.emit({ t: 'fx', kind: debris === 'stone' ? 'break' : debris === 'twig' ? 'chop' : 'clear', x, y, by: p.id }, 'all');
+    giveAll(ctx, p, [{ id: debris === 'stone' ? 'mat.stone' : debris === 'twig' ? 'mat.wood' : 'mat.fiber', qty: debris === 'weed' ? 1 : ctx.rng.int(1, 2) }], x, y);
     if (debris === 'weed') {
       const found = weedFind(state, ctx.rng);
       if (found && canFit(p.inv, found, 1)) {
@@ -198,8 +232,12 @@ export function useItem(ctx: SimContext, p: PlayerState, slot: number, x: number
     }
     case 'produce':
     case 'forage':
+    case 'artisan':
+    case 'gem':
     case 'crate':
       return '포장대에서 출하 상자에 담아 배로 옮겨 주세요.';
+    case 'material':
+      return '작업대에서 장비를 만드는 데 써요.';
     default:
       return null;
   }
@@ -210,29 +248,18 @@ export function useItem(ctx: SimContext, p: PlayerState, slot: number, x: number
 export function harvest(ctx: SimContext, p: PlayerState, x: number, y: number): Result {
   const { state, map, rng } = ctx;
   const key = y * map.w + x;
-  const soil = state.soil[key];
-  if (!soil?.crop || !isReady(soil.crop)) return null;
-  const def = getCrop(soil.crop.id);
-  const q = rollQuality(soil, rng);
-  const qty = rollYield(def, q, rng);
-  const itemId = `crop.${def.id}`;
-  if (!canFit(p.inv, itemId, qty, q)) return '가방이 가득 찼어요.';
-  addItem(p.inv, itemId, qty, q);
-  soil.fertility = Math.max(20, soil.fertility - 4);
-  if (def.regrowDays > 0) {
-    soil.crop.growth = def.growDays - def.regrowDays;
-    soil.crop.harvests++;
-  } else {
-    soil.crop = null;
-    soil.fert = null;
-  }
-  if (!state.discovered.includes(def.id)) {
-    state.discovered.push(def.id);
-    ctx.emit({ t: 'toast', text: `도감에 새 작물이 기록됐어요: ${def.name}`, tone: 'good' }, p.id);
-  }
+  const got = rollHarvest(state, rng, key);
+  if (!got) return null;
+  const def = getCrop(state.soil[key].crop!.id);
+  const { qty, q } = got;
+  if (!canFit(p.inv, got.id, qty, q)) return '가방이 가득 찼어요.';
+  addItem(p.inv, got.id, qty, q);
+  const isNew = !state.discovered.includes(def.id);
+  applyHarvest(state, key);
+  if (isNew) ctx.emit({ t: 'toast', text: `도감에 새 작물이 기록됐어요: ${def.name}`, tone: 'good' }, p.id);
   ctx.touchSoil(key);
   ctx.touchPlayer(p.id);
-  ctx.emit({ t: 'harvest', x, y, cropId: def.id, q, qty, by: p.id }, 'all');
+  ctx.emit({ t: 'harvest', x, y, cropId: def.id, q: q ?? 1, qty, by: p.id }, 'all');
   return null;
 }
 
@@ -279,6 +306,11 @@ export function interact(ctx: SimContext, p: PlayerState, x: number, y: number):
       case 'board':
         ctx.emit({ t: 'openBoard' }, p.id);
         return null;
+      case 'workbench':
+        ctx.emit({ t: 'openCraft' }, p.id);
+        return null;
+      case 'cave':
+        return '동굴 안쪽은 무너진 바위로 막혀 있어요. 서늘한 바람만 불어와요.';
       case 'well': {
         const slot = p.inv.findIndex((s) => s && getItem(s.id).tool === 'can');
         if (slot < 0) return '물뿌리개가 없어요.';
@@ -289,6 +321,13 @@ export function interact(ctx: SimContext, p: PlayerState, x: number, y: number):
   const soil = state.soil[y * map.w + x];
   if (soil?.crop && isReady(soil.crop)) return harvest(ctx, p, x, y);
   const placed = placedAt(state, x, y);
+  if (placed && isMachine(placed.kind)) {
+    if (placed.kind === 'chest') {
+      ctx.emit({ t: 'openChest', id: placed.id }, p.id);
+      return null;
+    }
+    return collectMachine(ctx, p, placed);
+  }
   if (placed) {
     const itemId = `place.${placed.kind}`;
     if (!canFit(p.inv, itemId, 1)) return '가방이 가득 찼어요.';
@@ -337,12 +376,12 @@ export function nearPacking(map: WorldMap, p: PlayerState): boolean {
 export function pack(ctx: SimContext, p: PlayerState, slot: number, qty: number): Result {
   const s = p.inv[slot];
   const kind = s ? getItem(s.id).kind : null;
-  if (!s || (kind !== 'produce' && kind !== 'forage')) return '작물이나 채집물만 상자에 담을 수 있어요.';
+  if (!s || (kind !== 'produce' && kind !== 'forage' && kind !== 'artisan' && kind !== 'gem')) return '작물·채집물·가공품·보석만 상자에 담을 수 있어요.';
   if (!nearPacking(ctx.map, p)) return '포장대 앞에서 담아 주세요.';
   if (p.carrying.length >= (p.cart ? CART_CAPACITY : 1)) return '더 들 수 없어요. 먼저 배에 실어 주세요.';
   if (countItem(p.inv, 'crate') < 1) return '빈 출하 상자가 없어요. 등불 공방에서 살 수 있어요.';
   const n = Math.max(1, Math.min(qty | 0, CRATE_CAPACITY, s.qty));
-  const cropId = kind === 'forage' ? s.id : getItem(s.id).cropId!;
+  const cropId = kind === 'produce' ? getItem(s.id).cropId! : s.id;
   const q = s.q ?? 1;
   takeFromSlot(p.inv, slot, n);
   removeItem(p.inv, 'crate', 1);

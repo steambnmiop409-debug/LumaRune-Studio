@@ -31,6 +31,7 @@ export const TOOL_SHOP_STOCK = [
   'place.sprinkler2',
   'place.sprinkler3',
   'place.cover',
+  'tool.pick',
   'tool.can.2',
   'tool.can.3',
   'upgrade.cart',

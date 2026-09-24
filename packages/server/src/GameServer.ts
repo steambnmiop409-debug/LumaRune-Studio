@@ -9,6 +9,9 @@ import {
   TILE,
   advanceDay,
   deliverRequest,
+  addItem,
+  craft,
+  chestMove,
   sortBackpack,
   applyPrecipitationHour,
   buy,
@@ -235,6 +238,12 @@ export class GameServer {
         sortBackpack(p.inv);
         this.dirtyPlayers.add(p.id);
         break;
+      case 'craft':
+        fail(craft(ctx, p, String(msg.recipe)));
+        break;
+      case 'chest':
+        if (Number.isInteger(msg.slot) && msg.slot >= 0 && (msg.from === 'inv' || msg.from === 'chest')) fail(chestMove(ctx, p, msg.id | 0, msg.from, msg.slot));
+        break;
       case 'sleep':
         p.sleeping = true;
         this.checkSleep();
@@ -285,6 +294,23 @@ export class GameServer {
       const k = kinds[Math.max(0, Math.min(kinds.length - 1, arg ?? 0))];
       const wet = k === 'rain' || k === 'storm' || k === 'snow';
       state.weather = { ...state.weather, kind: k, precipStart: 0, precipEnd: wet ? DAY_END : 0, wind: k === 'storm' ? 0.9 : state.weather.wind };
+    } else if (cmd === 'kit') {
+      // Dev: a test kit for the crafting loop.
+      for (const [id, n, q] of [
+        ['tool.pick', 1],
+        ['mat.wood', 400],
+        ['mat.stone', 80],
+        ['mat.fiber', 60],
+        ['mat.coal', 20],
+        ['ore.copper', 30],
+        ['ore.iron', 20],
+        ['bar.copper', 10],
+        ['bar.iron', 10],
+        ['gem.quartz', 3],
+        ['crop.strawberry', 6, 3],
+        ['crop.tomato', 6, 2],
+      ] as Array<[string, number, number?]>)
+        addItem(p.inv, id, n, q);
     } else if (cmd === 'grow') {
       for (const s of Object.values(state.soil)) if (s.crop && !s.crop.dead) s.crop.growth = getCrop(s.crop.id).growDays;
       for (const k of Object.keys(state.soil)) this.dirtySoil.add(Number(k));
@@ -382,7 +408,7 @@ export class GameServer {
     }
     if (this.dirtyDebris) {
       this.dirtyDebris = false;
-      this.broadcast({ t: 'debris', debris: state.debris });
+      this.broadcast({ t: 'debris', debris: state.debris, nodes: state.nodes });
     }
     if (this.dirtySocial) {
       this.dirtySocial = false;

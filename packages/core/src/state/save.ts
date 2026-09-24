@@ -15,6 +15,8 @@ const MIGRATIONS: Record<number, Migration> = {
   1: (s) => ({ ...s, npcs: {}, forage: {}, request: null }),
   // v3: farm debris (existing farms start tidy).
   2: (s) => ({ ...s, debris: {} }),
+  // v4: quarry outcrops (machines keep their optional fields).
+  3: (s) => ({ ...s, nodes: {} }),
 };
 
 export function makeSave(state: WorldState): SaveFile {

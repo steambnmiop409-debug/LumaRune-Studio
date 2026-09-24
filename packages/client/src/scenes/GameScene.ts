@@ -15,6 +15,9 @@ import {
   allNpcPoses,
   NPC_BY_ID,
   npcAt,
+  MACHINE_NAME,
+  NODE_NAME,
+  timeLeft,
   debrisBlocks,
   type Dir,
   type GameEvent,
@@ -36,6 +39,7 @@ import { formatGold } from '../ui/kit';
 import { DaySummaryPanel, JournalPanel, PackingPanel, PauseMenu, ShopPanel, SleepDialog, type Panel } from '../ui/panels';
 import { TitleScene } from './TitleScene';
 import { BoardPanel, DialoguePanel } from '../ui/social';
+import { ChestPanel, CraftPanel } from '../ui/crafting';
 
 const SPEED = 88;
 const SWING_TIME = 0.32;
@@ -56,6 +60,8 @@ const INTERACT_LABEL: Record<InteractKind, string> = {
   bed: '잠자리에 들기',
   well: '우물에서 물 긷기',
   board: '마을 게시판',
+  workbench: '작업대',
+  cave: '동굴 입구',
 };
 
 export class GameScene implements Scene {
@@ -137,6 +143,7 @@ export class GameScene implements Scene {
       if (map.solid[ty * map.w + tx]) return true;
       if (this.world.placed.some((p) => p.x === tx && p.y === ty)) return true;
       if (debrisBlocks(this.world.state.debris[ty * map.w + tx])) return true;
+      if (this.world.state.nodes[ty * map.w + tx]) return true;
       const crop = this.world.soil[ty * map.w + tx]?.crop;
       if (crop && !crop.dead && getCrop(crop.id).trellis && cropStage(crop) >= 1) return true;
     }
@@ -397,6 +404,13 @@ export class GameScene implements Scene {
           ps.burst(x, y - 2, 12, ['#b0a898', '#8f8a86', '#d0c8bc'], 55, 50, 220, 0.55);
           audio.play('hoe', { pan, rate: 0.7 });
           audio.play('crate', { pan, volume: 0.5, rate: 1.4, delay: 0.03 });
+        } else if (e.kind === 'mine') {
+          ps.burst(x, y - 4, 16, ['#b0a898', '#8f8a86', '#d0c8bc', '#6a6670'], 70, 60, 240, 0.6);
+          audio.play('hoe', { pan, rate: 0.6 });
+          audio.play('crate', { pan, volume: 0.6, rate: 1.6, delay: 0.04 });
+        } else if (e.kind === 'load') {
+          audio.play('crate', { pan, volume: 0.55, rate: 1.1 });
+          ps.burst(x, y - 8, 6, ['#fff4d0', '#e8d8b0'], 20, 30, 100, 0.4);
         } else if (e.kind === 'chop') {
           ps.burst(x, y - 2, 9, ['#8a5a3a', '#d8b07a', '#6a9a4a'], 45, 45, 200, 0.5);
           audio.play('crate', { pan, volume: 0.6, rate: 1.2 });
@@ -458,6 +472,21 @@ export class GameScene implements Scene {
       case 'forage':
         this.pickups.push({ img: Sprites.icon(e.item), x: e.x * TILE + 8, y: e.y * TILE + 4, t: 0, label: '+1' });
         audio.play('pop');
+        break;
+      case 'openCraft':
+        this.open(new CraftPanel(this.world, (m) => this.send(m), audio));
+        break;
+      case 'openChest':
+        this.open(new ChestPanel(this.world, e.id, (m) => this.send(m), audio));
+        break;
+      case 'crafted':
+        audio.play('coin', { rate: 1.3, volume: 0.6 });
+        audio.play('crate', { volume: 0.5, delay: 0.05 });
+        if (this.panel instanceof CraftPanel) this.panel.crafted();
+        this.hud.toast(`${getItem(e.item).name}${e.qty > 1 ? ` ×${e.qty}` : ''} 제작!`, 'good', Sprites.icon(e.item));
+        break;
+      case 'gain':
+        this.pickups.push({ img: Sprites.icon(e.item), x: e.x * TILE + 8, y: e.y * TILE + 4, t: Math.random() * 0.1, label: `+${e.qty}` });
         break;
       case 'saved':
         this.hud.toast('저장했어요', 'info');
@@ -542,6 +571,8 @@ export class GameScene implements Scene {
       players,
       forage: world.state.forage,
       debris: world.state.debris,
+      nodes: world.state.nodes,
+      now: world.clock.day * 1440 + Math.floor(minute),
       boardFresh: !!world.state.request && !world.state.request.done,
     };
   }
@@ -602,12 +633,39 @@ export class GameScene implements Scene {
       let ly = 0;
       const npcHere = npcAt(world.map, world.clock.minute, tx, ty);
       const forageHere = world.state.forage[ty * world.map.w + tx];
+      const placedHere = world.placed.find((q) => q.x === tx && q.y === ty);
+      const nodeHere = world.state.nodes[ty * world.map.w + tx];
       if (npcHere) {
         const heldKind = held ? getItem(held.id).kind : null;
         const name = NPC_BY_ID.get(npcHere)!.name;
         label = heldKind === 'produce' || heldKind === 'forage' ? `${name}와 대화 · 클릭: 선물` : `${name}와 대화`;
         lx = tx * TILE + 8 - cx;
         ly = ty * TILE - 30 - cy;
+      } else if (placedHere && MACHINE_NAME[placedHere.kind]) {
+        const name = MACHINE_NAME[placedHere.kind]!;
+        const now = world.clock.day * 1440 + world.clock.minute;
+        const w = placedHere.work;
+        const stored = placedHere.store?.some((st) => st);
+        label =
+          placedHere.kind === 'chest'
+            ? `${name} 열기`
+            : w && now >= w.ready
+              ? `${name} · ${getItem(w.out[0].id).name} 꺼내기`
+              : w
+                ? `${name} · ${timeLeft(w.ready - now)} 남음`
+                : placedHere.kind === 'harvester'
+                  ? stored
+                    ? `${name} · 수확물 꺼내기`
+                    : `${name} · 내일 아침 수확`
+                  : placedHere.kind === 'beehouse'
+                    ? `${name} · 꿀 모으는 중`
+                    : `${name} · 재료를 들고 사용`;
+        lx = tx * TILE + 8 - cx;
+        ly = ty * TILE - 22 - cy;
+      } else if (nodeHere) {
+        label = `${NODE_NAME[nodeHere as keyof typeof NODE_NAME]} · 곡괭이로 캐기`;
+        lx = tx * TILE + 8 - cx;
+        ly = ty * TILE - 8 - cy;
       } else if (forageHere) {
         label = `${getItem(forageHere).name} 줍기`;
         lx = tx * TILE + 8 - cx;
