@@ -59,7 +59,8 @@ interface Drawable {
   draw: () => void;
 }
 
-const TREE_KINDS = new Set(['oak', 'pine', 'blossom', 'palm']);
+const TREE_KINDS = new Set(['oak', 'pine', 'blossom', 'palm', 'fruittree']);
+const LANDMARKS = new Set(['tent', 'campfire', 'logseat', 'woodpile', 'ruin', 'shrine', 'tidepool', 'gazebo']);
 
 export class WorldView {
   readonly terrain: TerrainRenderer;
@@ -243,18 +244,42 @@ export class WorldView {
       const by = o.y * TILE;
       if (TREE_KINDS.has(o.kind)) {
         const tree = Sprites.tree(o.kind as 'oak', o.v, season);
-        shadow(bx + 8, by + 13, 11, 3.5);
-        const sx = bx + 8 - tree.ax - cx;
-        const sy = by + 14 - tree.ay - cy;
+        // Wild trees stand a few pixels off the grid so groves never look planted; orchard rows stay neat.
+        const jx = o.kind === 'fruittree' ? 0 : (o.v % 9) - 4;
+        const jy = o.kind === 'fruittree' ? 0 : (Math.floor(o.v / 9) % 5) - 2;
+        shadow(bx + 8 + jx, by + 13 + jy, o.kind === 'fruittree' ? 10 : 11, 3.5);
+        const sx = bx + 8 - tree.ax - cx + jx;
+        const sy = by + 14 - tree.ay - cy + jy;
         const sway = Math.round(Math.sin(this.time * 1.4 + o.x * 0.7 + o.y * 0.3) * wind * 1.3);
         drawables.push({
-          y: by + 14,
+          y: by + 14 + jy,
           draw: () => {
             const img = tree.img;
             ctx.drawImage(img, 0, tree.swayRows, img.width, img.height - tree.swayRows, sx, sy + tree.swayRows, img.width, img.height - tree.swayRows);
             ctx.drawImage(img, 0, 0, img.width, tree.swayRows, sx + sway, sy, img.width, tree.swayRows);
           },
         });
+        continue;
+      }
+      if (LANDMARKS.has(o.kind)) {
+        const w = (o.w ?? 1) * TILE;
+        const h = (o.h ?? 1) * TILE;
+        let frame = 0;
+        if (o.kind === 'campfire') frame = Math.floor(this.time * 8 + o.x) % 3;
+        else if (o.kind === 'shrine') frame = lit ? 1 : 0;
+        else if (o.kind === 'tidepool') frame = Math.floor(this.time * 1.5 + o.x) % 2;
+        const img = Sprites.landmark(o.kind, o.v, frame);
+        const flat = o.kind === 'tidepool';
+        if (!flat && o.kind !== 'campfire') shadow(bx + w / 2, by + h - 2, w / 2 - 1, 2.5);
+        const ix = bx + Math.floor((w - img.width) / 2) - cx;
+        const iy = by + h - img.height + (o.kind === 'tidepool' ? 2 : 0) - cy;
+        drawables.push({ y: flat ? by : by + h - 2, draw: () => ctx.drawImage(img, ix, iy) });
+        if (o.kind === 'campfire') {
+          lights.push({ x: bx + 8 - cx, y: by + 6 - cy, r: 70 + Math.sin(this.time * 9) * 4, color: '#ffb060', a: 0.95 });
+          if (Math.random() < 0.08) this.particles.spawn({ x: bx + 8 + (Math.random() - 0.5) * 3, y: by + 2, vx: (Math.random() - 0.5) * 6 + input.weather.wind * 10, vy: -14, max: 1.8, color: '#9a9aa8' });
+          if (Math.random() < 0.05) this.particles.spawn({ kind: 'sparkle', x: bx + 8, y: by + 4, vx: (Math.random() - 0.5) * 16, vy: -26, max: 0.7, color: '#ffd070' });
+        }
+        if (o.kind === 'shrine' && lit) lights.push({ x: bx + 24 - cx, y: by - 8 - cy, r: 36, color: '#ffd98a' });
         continue;
       }
       switch (o.kind) {

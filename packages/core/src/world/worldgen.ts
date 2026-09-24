@@ -42,6 +42,15 @@ const SOLID_OBJECTS: ReadonlySet<ObjectKind> = new Set<ObjectKind>([
   'beehive',
   'telescope',
   'board',
+  'fruittree',
+  'tent',
+  'campfire',
+  'logseat',
+  'woodpile',
+  'ruin',
+  'shrine',
+  'tidepool',
+  'gazebo',
 ]);
 
 export function isSolidObject(kind: ObjectKind): boolean {
@@ -136,6 +145,17 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
     }
   }
 
+  // Tidy the beach: lone grass tufts on sand become sand, lone sand patches in grass become grass.
+  for (let pass = 0; pass < 2; pass++)
+    for (let y = 1; y < H - 1; y++)
+      for (let x = 1; x < W - 1; x++) {
+        const t = T(x, y);
+        if (t !== Terrain.Grass && t !== Terrain.Sand) continue;
+        let same = 0;
+        for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) if ((ox || oy) && T(x + ox, y + oy) === t) same++;
+        if (same <= 2) setT(x, y, t === Terrain.Grass ? Terrain.Sand : Terrain.Grass);
+      }
+
   // ── 2. Forest & meadow floors ──────────────────────────────────────────
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
@@ -157,6 +177,58 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
   for (let y = 0; y < H; y++)
     for (let x = 0; x < W; x++) if (T(x, y) === Terrain.Sand && Math.hypot(x - beachC.x, y - beachC.y) < 40) zone[idx(x, y)] = Zone.Beach;
 
+  // ── 2b. Plateaus: Starlight Hill and the northern forest ridge ─────────
+  const level = new Uint8Array(N);
+  const lv = (x: number, y: number) => (inb(x, y) ? level[idx(x, y)] : 0);
+  const nearCoast = (x: number, y: number, r: number) => {
+    for (let oy = -r; oy <= r; oy++)
+      for (let ox = -r; ox <= r; ox++) {
+        const t = T(x + ox, y + oy);
+        if (t === Terrain.Sea || t === Terrain.Deep || t === Terrain.Sand) return true;
+      }
+    return false;
+  };
+  {
+    // Decide the shape on a coarse 3×3-tile grid so cliff runs are long and straight
+    // (like hand-built cliffs), then round the corners at tile resolution.
+    const CELL = 3;
+    const cellOk = (cx: number, cy: number) => {
+      const x = cx * CELL + 1;
+      const y = cy * CELL + 1;
+      const hill = Math.hypot((x - meadowC.x) / 1.25, y - meadowC.y + 1) + (fbm(x / 11, y / 11, seed + 61, 3) - 0.5) * 9 < 14;
+      const ridgeY = 34 + (fbm(x / 22, 0.5, seed + 62, 2) - 0.5) * 12 - Math.max(0, 82 - x) * 1.3 - Math.max(0, x - 158) * 1.3;
+      const ridge = x > 60 && x < 180 && y < ridgeY;
+      if (!hill && !ridge) return false;
+      for (let yy = cy * CELL; yy < cy * CELL + CELL; yy++) for (let xx = cx * CELL; xx < cx * CELL + CELL; xx++) if (nearCoast(xx, yy, 2)) return false;
+      return true;
+    };
+    const cw = Math.ceil(W / CELL);
+    const ch = Math.ceil(H / CELL);
+    const cells = new Uint8Array(cw * ch);
+    for (let cy = 0; cy < ch; cy++) for (let cx = 0; cx < cw; cx++) cells[cy * cw + cx] = cellOk(cx, cy) ? 1 : 0;
+    // Drop lonely cells and fill single-cell notches.
+    for (let pass = 0; pass < 2; pass++)
+      for (let cy = 1; cy < ch - 1; cy++)
+        for (let cx = 1; cx < cw - 1; cx++) {
+          const n = cells[cy * cw + cx - 1] + cells[cy * cw + cx + 1] + cells[(cy - 1) * cw + cx] + cells[(cy + 1) * cw + cx];
+          if (cells[cy * cw + cx] && n <= 1) cells[cy * cw + cx] = 0;
+          else if (!cells[cy * cw + cx] && n >= 3 && cellOk(cx, cy)) cells[cy * cw + cx] = 1;
+        }
+    const raw = new Uint8Array(N);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) raw[idx(x, y)] = cells[Math.floor(y / CELL) * cw + Math.floor(x / CELL)];
+    // Round off outer corners (a tile with two open sides that meet).
+    for (let y = 1; y < H - 1; y++)
+      for (let x = 1; x < W - 1; x++) {
+        const i = idx(x, y);
+        if (!raw[i]) continue;
+        const l = raw[i - 1];
+        const r = raw[i + 1];
+        const u = raw[i - W];
+        const d = raw[i + W];
+        level[i] = (!l && !u) || (!r && !u) || (!l && !d) || (!r && !d) ? 0 : 1;
+      }
+  }
+
   // ── 3. River: a smooth stroke from a forest spring down to the sea ─────
   const rivers: Stroke[] = [];
   {
@@ -171,7 +243,20 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
       }
     }
     const pts = simplify(chaikin(raw, 3), 0.5);
-    const hw = pts.map(([, y]) => 0.95 + Math.min(1, Math.max(0, (y - 40) / 110)) * 0.75);
+    // Where the river leaves the ridge it widens into a proper waterfall.
+    let dropY = -1;
+    for (const [x, y] of pts) {
+      const rx = Math.round(x);
+      const ry = Math.round(y);
+      if (lv(rx, ry) && !lv(rx, ry + 1)) {
+        dropY = ry + 1;
+        break;
+      }
+    }
+    const hw = pts.map(([, y]) => {
+      const base = 0.95 + Math.min(1, Math.max(0, (y - 40) / 110)) * 0.75;
+      return dropY > 0 && y > dropY - 3 && y < dropY + 4 ? Math.max(base, 1.75) : base;
+    });
     const river: Stroke = { pts, hw };
     rivers.push(river);
     const b = strokeBounds(river);
@@ -184,6 +269,28 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
           zone[idx(x, y)] = Zone.None;
         }
       }
+  }
+
+  // Plunge pool below the waterfall.
+  {
+    const r = rivers[0];
+    let fx = -1;
+    let fy = -1;
+    for (const [x, y] of r.pts) {
+      const rx = Math.round(x);
+      const ry = Math.round(y);
+      if (lv(rx, ry - 1) && !lv(rx, ry)) {
+        fx = x;
+        fy = ry + 3;
+        break;
+      }
+    }
+    if (fx > 0)
+      for (let y = fy - 1; y <= fy + 4; y++)
+        for (let x = Math.floor(fx) - 5; x <= Math.ceil(fx) + 5; x++) {
+          const d = Math.hypot((x + 0.5 - fx) / 1.35, y + 0.5 - (fy + 1.5)) + (valueNoise(x / 2, y / 2, seed + 12) - 0.5) * 1.2;
+          if (d < 2.6 && !lv(x, y) && T(x, y) !== Terrain.River) setT(x, y, Terrain.Pond);
+        }
   }
 
   // Farm pond — fresh water close to the fields.
@@ -212,6 +319,49 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
         (x === plaza.x || x === plaza.x + plaza.w - 1) && (y === plaza.y || y === plaza.y + plaza.h - 1);
       if (!corner) setT(x, y, Terrain.Cobble);
     }
+
+  // ── 4b. Cliff faces: three tiles of rock below every south-facing plateau edge ──
+  const falls: number[] = [];
+  for (let y = 1; y < H - 3; y++)
+    for (let x = 1; x < W - 1; x++) {
+      if (!lv(x, y) || lv(x, y + 1)) continue;
+      for (let k = 1; k <= 3; k++) {
+        if (lv(x, y + k)) break;
+        const t = T(x, y + k);
+        if (t === Terrain.River) {
+          falls.push(idx(x, y + k));
+          continue;
+        }
+        if (isWater(t)) break;
+        setT(x, y + k, Terrain.Cliff);
+      }
+    }
+
+  /** Cuts 3-wide stone steps into the straight stretch of cliff nearest to (tx, ty). */
+  const placeStairs = (tx: number, ty: number) => {
+    let best: [number, number] | null = null;
+    let bestD = Infinity;
+    for (let y = 1; y < H - 5; y++)
+      for (let x = 2; x < W - 5; x++) {
+        let ok = true;
+        for (let k = -1; k <= 3 && ok; k++) {
+          const xx = x + k;
+          if (!lv(xx, y - 1) || T(xx, y) !== Terrain.Cliff || T(xx, y + 1) !== Terrain.Cliff || T(xx, y + 2) !== Terrain.Cliff) ok = false;
+          else if (k >= 0 && k <= 2 && (lv(xx, y + 3) || isWater(T(xx, y + 3)) || T(xx, y + 3) === Terrain.Cliff)) ok = false;
+        }
+        if (!ok) continue;
+        const d = Math.hypot(x + 1 - tx, y + 1 - ty);
+        if (d < bestD) {
+          bestD = d;
+          best = [x, y];
+        }
+      }
+    if (!best) return null;
+    for (let k = 0; k < 3; k++) for (let j = 0; j < 3; j++) setT(best[0] + k, best[1] + j, Terrain.Stairs);
+    return { x: best[0] + 1, y: best[1] };
+  };
+  const hillStairs = placeStairs(plaza.x + plaza.w - 2, plaza.y - 10);
+  const ridgeStairs = placeStairs(forestC.x - 6, forestC.y + 10);
 
   // ── Helpers for structures ─────────────────────────────────────────────
   const reserve = (x: number, y: number, w = 1, h = 1) => {
@@ -332,6 +482,23 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
 
   // ── 8. Roads (A* with organic wobble, bridges over the river) ──────────
   const roads: Array<Array<[number, number]>> = [];
+  /** A plateau border crossed without stairs (east, west or north edges). */
+  const edgeOf = (x: number, y: number) => {
+    const own = T(x, y);
+    if (own === Terrain.Stairs || own === Terrain.Cliff) return false;
+    const l = lv(x, y);
+    for (const [ox, oy] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ]) {
+      if (!inb(x + ox, y + oy) || lv(x + ox, y + oy) === l) continue;
+      const nt = T(x + ox, y + oy);
+      if (nt !== Terrain.Cliff && nt !== Terrain.Stairs && !isWater(nt)) return true;
+    }
+    return false;
+  };
   const roadCost = (x: number, y: number) => {
     if (!inb(x, y) || x < 1 || y < 1 || x >= W - 2 || y >= H - 2) return Infinity;
     // A 2-wide brush must fit, so check the 2×2 block.
@@ -341,6 +508,11 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
         const t = T(x + ox, y + oy);
         if (solid[idx(x + ox, y + oy)]) return Infinity;
         if (t === Terrain.Deep || t === Terrain.Sea || t === Terrain.Pond) return Infinity;
+        if (t === Terrain.Cliff || edgeOf(x + ox, y + oy)) return Infinity;
+        if (t === Terrain.Stairs) {
+          c += 0.2;
+          continue;
+        }
         if (t === Terrain.River) c += 6;
         else if (t === Terrain.Path || t === Terrain.Cobble || t === Terrain.Bridge || t === Terrain.Dock) c += 0.3;
         else if (t === Terrain.Forest) c += 2.5;
@@ -364,6 +536,7 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
         if (strokeDistance(stroke, x + 0.5, y + 0.5) >= 0) continue;
         const t = T(x, y);
         if (t === Terrain.River) bridge.push([x, y]);
+        else if (t === Terrain.Cliff || t === Terrain.Stairs) continue;
         else if (t !== Terrain.Cobble && t !== Terrain.Dock && t !== Terrain.Bridge && !isWater(t)) setT(x, y, surface);
         reserve(x - 1, y - 1, 3, 3);
       }
@@ -372,16 +545,22 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
       const ys = bridge.map(([, y]) => y);
       const y0 = Math.min(...ys);
       const y1 = Math.max(y0 + 1, Math.min(Math.max(...ys), y0 + 2));
+      // One rectangle wide enough for every row, so a diagonal river never makes a crooked deck.
+      let L = Infinity;
+      let R = -Infinity;
       for (let y = y0; y <= y1; y++) {
         const xs = bridge.filter(([, by]) => by === y).map(([x]) => x);
-        const seedX = xs.length ? xs[0] : bridge[0][0];
-        let l = seedX;
-        let r = seedX;
+        let l = xs.length ? Math.min(...xs) : bridge[0][0];
+        let r = xs.length ? Math.max(...xs) : bridge[0][0];
         while (T(l - 1, y) === Terrain.River) l--;
         while (T(r + 1, y) === Terrain.River) r++;
-        for (let x = l; x <= r; x++) setT(x, y, Terrain.Bridge);
-        if (!isWater(T(l - 1, y))) setT(l - 1, y, surface);
-        if (!isWater(T(r + 1, y))) setT(r + 1, y, surface);
+        L = Math.min(L, l);
+        R = Math.max(R, r);
+      }
+      for (let y = y0; y <= y1; y++) {
+        for (let x = L; x <= R; x++) setT(x, y, Terrain.Bridge);
+        if (!isWater(T(L - 1, y))) setT(L - 1, y, surface);
+        if (!isWater(T(R + 1, y))) setT(R + 1, y, surface);
       }
     }
   };
@@ -392,7 +571,11 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
   road(dockX - 1, plaza.y + plaza.h, dockX - 1, shoreY - 2, Terrain.Path);
   road(plaza.x + plaza.w, plaza.y + 6, lh.x + 1, lh.y + 3, Terrain.Path);
   road(plaza.x + plaza.w - 2, plaza.y - 1, meadowC.x, meadowC.y + 4, Terrain.Path);
-  road(gateNorth.x, gateNorth.y, forestC.x - 6, forestC.y + 8, Terrain.Path);
+  if (ridgeStairs) {
+    road(gateNorth.x, gateNorth.y, ridgeStairs.x - 1, ridgeStairs.y + 3, Terrain.Path);
+    road(ridgeStairs.x - 1, ridgeStairs.y + 2, forestC.x - 2, forestC.y - 6, Terrain.Path);
+  } else road(gateNorth.x, gateNorth.y, forestC.x - 6, forestC.y + 8, Terrain.Path);
+  void hillStairs;
   road(gateSouth.x, gateSouth.y + 1, beachC.x + 6, beachC.y - 8, Terrain.Path);
   // Little path from the house door to the east gate.
   road(spawn.x, spawn.y, gateEast.x - 1, gateEast.y, Terrain.Path);
@@ -463,6 +646,110 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
   interactables.push({ kind: 'board', x: plaza.x + 4, y: plaza.y + 1 });
   addObject('bench', meadowC.x + 2, meadowC.y - 1, 2, 1);
 
+  // ── 10b. Landmarks: places worth walking to ────────────────────────────
+  {
+    const BAD = new Set<number>([Terrain.Cliff, Terrain.Stairs, Terrain.Path, Terrain.Cobble, Terrain.Dock, Terrain.Bridge]);
+    const okTile = (x: number, y: number, lvl = -1) =>
+      inb(x, y) && !solid[idx(x, y)] && !isWater(T(x, y)) && !BAD.has(T(x, y)) && (lvl < 0 || lv(x, y) === lvl) && !objects.some((o) => o.x === x && o.y === y);
+    const okArea = (x: number, y: number, w: number, h: number, lvl = -1) => {
+      for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) if (!okTile(xx, yy, lvl)) return false;
+      return true;
+    };
+    /** Nearest top-left where a w×h box fits, searching outward from (tx, ty). */
+    const findBox = (tx: number, ty: number, w: number, h: number, radius: number, lvl = -1) => {
+      let best: { x: number; y: number } | null = null;
+      let bestD = Infinity;
+      for (let y = ty - radius; y <= ty + radius; y++)
+        for (let x = tx - radius; x <= tx + radius; x++) {
+          const d = Math.hypot(x - tx, y - ty);
+          if (d < bestD && okArea(x, y, w, h, lvl)) {
+            best = { x, y };
+            bestD = d;
+          }
+        }
+      return best;
+    };
+    const markZone = (x: number, y: number, w: number, h: number, z: number) => {
+      for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) if (inb(xx, yy) && !isWater(T(xx, yy))) zone[idx(xx, yy)] = z;
+    };
+
+    // Forest campsite where the ridge trail ends.
+    const campAt = { x: forestC.x - 2, y: forestC.y - 6 };
+    const camp = findBox(campAt.x + 1, campAt.y - 3, 7, 6, 8, 1);
+    if (camp) {
+      addObject('tent', camp.x + 2, camp.y, 3, 2);
+      addObject('woodpile', camp.x + 5, camp.y + 1, 2, 1);
+      addObject('campfire', camp.x + 3, camp.y + 3);
+      addObject('logseat', camp.x + 1, camp.y + 3, 2, 1);
+      addObject('logseat', camp.x + 4, camp.y + 4, 2, 1);
+      reserve(camp.x - 2, camp.y - 2, 11, 10);
+      markZone(camp.x - 2, camp.y - 2, 11, 10, Zone.Camp);
+      // Forgotten ruins deeper along the ridge, reached by a trail from the camp.
+      const ruins = findBox(camp.x + 30, camp.y - 1, 9, 7, 14, 1);
+      if (ruins) {
+        for (const [dx, dy] of [
+          [0, 1],
+          [2, 0],
+          [6, 0],
+          [8, 1],
+          [0, 5],
+          [8, 5],
+        ])
+          addObject('ruin', ruins.x + dx, ruins.y + dy);
+        addObject('shrine', ruins.x + 3, ruins.y + 1, 3, 1);
+        reserve(ruins.x - 2, ruins.y - 2, 13, 11);
+        markZone(ruins.x - 2, ruins.y - 2, 13, 11, Zone.Ruins);
+        road(camp.x + 3, camp.y + 5, ruins.x + 4, ruins.y + 6, Terrain.Path);
+      }
+    }
+
+    // Hilltop gazebo on Starlight Hill.
+    const gz = findBox(meadowC.x - 1, meadowC.y - 7, 4, 3, 8, 1);
+    if (gz) {
+      addObject('gazebo', gz.x, gz.y, 4, 2);
+      reserve(gz.x - 1, gz.y - 2, 6, 6);
+    }
+
+    // Sunny orchard east of the village, in neat rows.
+    const orch = { x: plaza.x + plaza.w + 11, y: plaza.y + 5 };
+    let trees = 0;
+    for (let row = 0; row < 4; row++)
+      for (let col = 0; col < 6; col++) {
+        const x = orch.x + col * 3;
+        const y = orch.y + row * 3;
+        if (okArea(x, y, 1, 2, 0)) {
+          addObject('fruittree', x, y);
+          reserve(x - 1, y - 1, 3, 3);
+          trees++;
+        }
+      }
+    if (trees) {
+      markZone(orch.x - 2, orch.y - 2, 20, 14, Zone.Orchard);
+      if (okTile(orch.x - 2, orch.y - 1)) addObject('sign', orch.x - 2, orch.y - 1);
+      if (okTile(orch.x + 16, orch.y + 9)) addObject('crate', orch.x + 16, orch.y + 9);
+      if (okArea(orch.x + 16, orch.y + 2, 2, 1)) addObject('woodpile', orch.x + 16, orch.y + 2, 2, 1);
+      road(plaza.x + plaza.w, plaza.y + 8, orch.x - 2, orch.y + 4, Terrain.Path);
+    }
+
+    // Tide pools on the east cove.
+    let pools = 0;
+    const placedPools: Array<[number, number]> = [];
+    for (let y = 84; y < 128 && pools < 4; y++)
+      for (let x = 196; x < W - 3 && pools < 4; x++) {
+        if (T(x, y) !== Terrain.Sand || T(x + 1, y) !== Terrain.Sand) continue;
+        let sea = false;
+        for (let oy = -2; oy <= 2; oy++) for (let ox = -2; ox <= 3; ox++) if (T(x + ox, y + oy) === Terrain.Sea) sea = true;
+        if (!sea || placedPools.some(([px, py]) => Math.hypot(px - x, py - y) < 7) || hash2(x, y, seed + 120) > 0.3) continue;
+        if (!okArea(x, y, 2, 1)) continue;
+        addObject('tidepool', x, y, 2, 1);
+        placedPools.push([x, y]);
+        pools++;
+      }
+
+    // The waterfall basin gets its own name.
+    for (const k of falls) markZone((k % W) - 4, Math.floor(k / W) - 1, 9, 8, Zone.Falls);
+  }
+
   // ── 11. Nature: trees, bushes, rocks, flowers, reeds ───────────────────
   const occupied = (x: number, y: number) => objects.some((o) => Math.abs(o.x - x) <= 1 && Math.abs(o.y - y) <= 1);
   const treeGrid = new Uint8Array(N);
@@ -470,6 +757,17 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
     for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) if (inb(x + ox, y + oy) && treeGrid[idx(x + ox, y + oy)]) return true;
     return false;
   };
+  // Forest depth (tiles to the nearest non-forest tile, capped) — cores grow dense, edges thin out.
+  const fdepth = new Uint8Array(N);
+  for (let i = 0; i < N; i++) fdepth[i] = terrain[i] === Terrain.Forest ? 4 : 0;
+  for (let pass = 0; pass < 4; pass++)
+    for (let y = 1; y < H - 1; y++)
+      for (let x = 1; x < W - 1; x++) {
+        const i = idx(x, y);
+        if (!fdepth[i]) continue;
+        fdepth[i] = Math.min(fdepth[i], fdepth[i - 1] + 1, fdepth[i + 1] + 1, fdepth[i - W] + 1, fdepth[i + W] + 1);
+      }
+  const village = { x: plaza.x + plaza.w / 2, y: plaza.y + plaza.h / 2 };
   for (let y = 2; y < H - 2; y++) {
     for (let x = 2; x < W - 2; x++) {
       const i = idx(x, y);
@@ -478,10 +776,21 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
       const r = hash2(x, y, seed + 31);
       const z = zone[i];
       let kind: ObjectKind | null = null;
-      if (t === Terrain.Forest && r < 0.34) kind = hash2(x, y, seed + 32) < 0.55 ? 'pine' : 'oak';
-      else if (t === Terrain.Meadow && r < 0.035) kind = 'blossom';
-      else if (t === Terrain.Grass && z !== Zone.Village && z !== Zone.Farm && r < 0.03) kind = hash2(x, y, seed + 33) < 0.2 ? 'blossom' : 'oak';
-      else if (t === Terrain.Sand && z === Zone.Beach && r < 0.025) kind = 'palm';
+      // Woods come in masses and groves with clearings, not an even sprinkle.
+      const grove = fbm(x / 13, y / 13, seed + 35, 3);
+      const clearing = valueNoise(x / 7, y / 7, seed + 36) > 0.8;
+      const pineShare = 0.35 + Math.max(0, (60 - y) / 60) * 0.5 + (level[i] ? 0.15 : 0);
+      if (t === Terrain.Forest && !clearing) {
+        if (r < (fdepth[i] >= 2 ? 0.72 : 0.42)) kind = hash2(x, y, seed + 32) < pineShare ? 'pine' : 'oak';
+      } else if (t === Terrain.Meadow && r < 0.018) kind = 'blossom';
+      else if (t === Terrain.Grass && z !== Zone.Village && z !== Zone.Farm) {
+        const p = grove > 0.64 ? 0.34 : grove > 0.58 ? 0.1 : 0.0035;
+        if (r < p) {
+          const nearVillage = Math.hypot(x - village.x, y - village.y) < 45;
+          const b = hash2(x, y, seed + 33);
+          kind = b < (nearVillage ? 0.16 : 0.05) ? 'blossom' : b > 0.8 && y < 90 ? 'pine' : 'oak';
+        }
+      } else if (t === Terrain.Sand && z === Zone.Beach && r < (valueNoise(x / 6, y / 6, seed + 39) > 0.55 ? 0.13 : 0.004)) kind = 'palm';
       if (kind) {
         // Keep off coasts and river banks.
         let wet = false;
@@ -493,10 +802,22 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
         continue;
       }
       const r2 = hash2(x, y, seed + 41);
-      if ((t === Terrain.Grass || t === Terrain.Forest) && z !== Zone.Farm && z !== Zone.Village && r2 < 0.012 && !occupied(x, y)) {
-        objects.push({ kind: r2 < 0.004 ? 'rock' : r2 < 0.006 ? 'stump' : 'bush', x, y, v: Math.floor(r2 * 1e5) % 1000 });
-        reserved[i] = 1;
-        continue;
+      // Bushes gather in thickets (often on grove margins); rocks in stony patches.
+      const thicket = valueNoise(x / 6, y / 6, seed + 37) + (grove > 0.55 && grove < 0.66 ? 0.12 : 0);
+      const stony = valueNoise(x / 9, y / 9, seed + 42);
+      const pBush = thicket > 0.72 ? 0.16 : 0.005;
+      const pRock = stony > 0.78 ? 0.06 : 0.0015;
+      if ((t === Terrain.Grass || t === Terrain.Forest) && z !== Zone.Farm && z !== Zone.Village && !occupied(x, y)) {
+        if (r2 < pRock) {
+          objects.push({ kind: 'rock', x, y, v: Math.floor(r2 * 1e6) % 1000 });
+          reserved[i] = 1;
+          continue;
+        }
+        if (r2 > 1 - pBush) {
+          objects.push({ kind: hash2(x, y, seed + 43) < 0.08 ? 'stump' : 'bush', x, y, v: Math.floor(r2 * 1e5) % 1000 });
+          reserved[i] = 1;
+          continue;
+        }
       }
       if (t === Terrain.Rock && r2 < 0.08 && !occupied(x, y)) {
         objects.push({ kind: 'rock', x, y, v: Math.floor(r2 * 1e5) % 1000 });
@@ -511,7 +832,8 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
       }
       if (nearFresh && (t === Terrain.Grass || t === Terrain.Sand) && r3 < 0.35) objects.push({ kind: 'reeds', x, y, v: Math.floor(r3 * 1e5) % 1000 });
       else if (t === Terrain.Meadow && r3 < 0.3) objects.push({ kind: 'flowers', x, y, v: Math.floor(r3 * 1e5) % 1000 });
-      else if (t === Terrain.Grass && z !== Zone.Farm && r3 < 0.035) objects.push({ kind: 'flowers', x, y, v: Math.floor(r3 * 1e5) % 1000 });
+      else if (t === Terrain.Grass && z !== Zone.Farm && r3 < (valueNoise(x / 8, y / 8, seed + 38) > 0.68 ? 0.3 : 0.006))
+        objects.push({ kind: 'flowers', x, y, v: Math.floor(r3 * 1e5) % 1000 });
     }
   }
 
@@ -536,10 +858,21 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
         const t = terrain[i];
         const z = zone[i];
         const r = hash2(x, y, seed + 91);
-        if (t === Terrain.Grass && z !== Zone.Farm && z !== Zone.Village && r < 0.05) objects.push({ kind: 'tallgrass', x, y, v: Math.floor(hash2(x, y, seed + 92) * 1000) });
+        const meadowy = valueNoise(x / 7, y / 7, seed + 99);
+        if ((t === Terrain.Grass || t === Terrain.Meadow) && z !== Zone.Farm && z !== Zone.Village && r < (meadowy > 0.62 ? 0.32 : 0.012))
+          objects.push({ kind: 'tallgrass', x, y, v: Math.floor(hash2(x, y, seed + 92) * 1000) });
         else if ((t === Terrain.Sand || t === Terrain.Path) && r < 0.018) objects.push({ kind: 'pebbles', x, y, v: Math.floor(hash2(x, y, seed + 93) * 1000) });
         else if (t === Terrain.Forest && r < 0.025) objects.push({ kind: 'mushroom', x, y, v: Math.floor(hash2(x, y, seed + 94) * 1000) });
         else if (t === Terrain.Forest && r > 0.996 && free(x, y, 2, 1)) addObject('log', x, y, 2, 1);
+      }
+    // Rubble and pebbles at the foot of the cliffs.
+    for (let y = 2; y < H - 2; y++)
+      for (let x = 2; x < W - 2; x++) {
+        if (T(x, y - 1) !== Terrain.Cliff || T(x, y) === Terrain.Cliff || T(x, y) === Terrain.Stairs || isWater(T(x, y))) continue;
+        if (solid[idx(x, y)] || reserved[idx(x, y)] || T(x, y) === Terrain.Path) continue;
+        const r = hash2(x, y, seed + 97);
+        if (r < 0.07 && free(x, y)) addObject('rock', x, y);
+        else if (r < 0.3) objects.push({ kind: 'pebbles', x, y, v: Math.floor(hash2(x, y, seed + 98) * 1000) });
       }
     for (let y = 2; y < H - 2; y++)
       for (let x = 2; x < W - 2; x++) if (T(x, y) === Terrain.Pond && hash2(x, y, seed + 95) < 0.3) objects.push({ kind: 'lilypad', x, y, v: Math.floor(hash2(x, y, seed + 96) * 1000) });
@@ -589,8 +922,15 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
   // ── 12. Collision map ──────────────────────────────────────────────────
   for (let i = 0; i < N; i++) {
     const t = terrain[i];
-    if (isWater(t)) solid[i] = 1;
+    if (isWater(t) || t === Terrain.Cliff) solid[i] = 1;
   }
+  // Plateau rims block the way down except where a road or the stairs pass.
+  for (let y = 1; y < H - 1; y++)
+    for (let x = 1; x < W - 1; x++) {
+      const t = T(x, y);
+      if (t === Terrain.Path || t === Terrain.Stairs || isWater(t)) continue;
+      if (edgeOf(x, y) && lv(x, y) === 1) solid[idx(x, y)] = 1;
+    }
   for (const o of objects) {
     if (!isSolidObject(o.kind)) continue;
     const w = o.w ?? 1;
@@ -621,6 +961,8 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
     lighthouse,
     rivers,
     roads: roadStrokes,
+    level,
+    falls,
   };
 }
 

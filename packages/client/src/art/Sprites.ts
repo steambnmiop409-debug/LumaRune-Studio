@@ -4,6 +4,7 @@ import { characterSheet, type CharacterSheet } from './sprites/character';
 import { cropSprite, deadCropSprite, produceIcon, seedIcon } from './sprites/crops';
 import { ITEM_ICONS } from './sprites/items';
 import { forageGround, forageIcon, noticeBoard } from './sprites/forage';
+import * as landmarks from './sprites/landmarks';
 import { blossomTree, bush, flowers, oakTree, palmTree, pineTree, reeds, rock, stump, type SeasonLook, type TreeSprite } from './sprites/nature';
 import * as props from './sprites/props';
 import * as details from './sprites/details';
@@ -31,11 +32,42 @@ class SpriteCache {
     this.cache.set(key, value);
   }
 
-  tree(kind: 'oak' | 'pine' | 'blossom' | 'palm', v: number, season: SeasonLook): TreeSprite {
+  tree(kind: 'oak' | 'pine' | 'blossom' | 'palm' | 'fruittree', v: number, season: SeasonLook): TreeSprite {
     const variant = v; // every tree on the island is its own drawing
     return this.get(`tree:${kind}:${variant}:${kind === 'palm' ? 0 : season}`, () =>
-      kind === 'oak' ? oakTree(variant, season) : kind === 'pine' ? pineTree(variant, season) : kind === 'blossom' ? blossomTree(variant, season) : palmTree(variant),
+      kind === 'oak'
+        ? oakTree(variant, season)
+        : kind === 'pine'
+          ? pineTree(variant, season)
+          : kind === 'blossom'
+            ? blossomTree(variant, season)
+            : kind === 'fruittree'
+              ? landmarks.fruitTree(variant, season)
+              : palmTree(variant),
     );
+  }
+  /** Landmark props (tents, ruins, gazebo…). `frame` animates where it matters. */
+  landmark(kind: string, v: number, frame = 0): HTMLCanvasElement {
+    return this.get(`landmark:${kind}:${v}:${frame}`, () => {
+      switch (kind) {
+        case 'tent':
+          return landmarks.tent(v);
+        case 'campfire':
+          return landmarks.campfire(v, frame);
+        case 'logseat':
+          return landmarks.logSeat(v);
+        case 'woodpile':
+          return landmarks.woodpile(v);
+        case 'ruin':
+          return landmarks.ruinPillar(v);
+        case 'shrine':
+          return landmarks.shrine(v, frame === 1);
+        case 'tidepool':
+          return landmarks.tidepool(v, frame);
+        default:
+          return landmarks.gazebo(v);
+      }
+    });
   }
 
   bush(v: number, season: SeasonLook) {

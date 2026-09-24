@@ -1,5 +1,5 @@
 import { CROPS } from '../data/crops';
-import { FORAGE, getItem } from '../data/items';
+import { FORAGE, ORCHARD_FRUIT, getItem } from '../data/items';
 import { NPCS, NPC_BY_ID } from '../data/npcs';
 import { addItem, canFit, countItem, removeItem } from '../inventory/inventory';
 import type { Rng } from '../math/rng';
@@ -105,7 +105,7 @@ export function spawnForage(state: WorldState, map: WorldMap, rng: Rng): void {
     if (f.id === 'forage.morel' && season !== 0) continue;
     if (f.id === 'forage.wildberry' && season !== 1 && season !== 2) continue;
     if (f.id === 'forage.wildflower' && season === 3) continue;
-    pools[f.where].push(f.id);
+    if (f.where !== 'orchard') pools[f.where].push(f.id);
   }
   const want: Record<'beach' | 'forest' | 'meadow', number> = { beach: 7, forest: 7, meadow: 5 };
   for (const where of ['beach', 'forest', 'meadow'] as const) {
@@ -123,6 +123,24 @@ export function spawnForage(state: WorldState, map: WorldMap, rng: Rng): void {
       placed++;
     }
   }
+  dropFruit(state, map, rng, season);
+}
+
+/** Summer and autumn mornings: ripe fruit lies under the orchard trees. */
+function dropFruit(state: WorldState, map: WorldMap, rng: Rng, season: number): void {
+  if (season !== 1 && season !== 2) return;
+  for (const o of map.objects) {
+    if (o.kind !== 'fruittree' || !rng.chance(season === 2 ? 0.5 : 0.3)) continue;
+    const spots = [
+      [o.x, o.y + 1],
+      [o.x - 1, o.y + 1],
+      [o.x + 1, o.y + 1],
+    ];
+    const [x, y] = spots[rng.int(0, spots.length - 1)];
+    const i = y * map.w + x;
+    if (map.solid[i] || state.forage[i] || map.terrain[i] === Terrain.Path) continue;
+    state.forage[i] = ORCHARD_FRUIT[o.v % ORCHARD_FRUIT.length];
+  }
 }
 
 /** Morning: a villager pins a new request to the notice board. */
@@ -131,7 +149,7 @@ export function newRequest(state: WorldState, rng: Rng): void {
   const npc = rng.pick(NPCS);
   const pool = CROPS.filter((c) => c.tier <= 2 && (c.temp[0] + c.temp[1]) / 2 > [10, 20, 12, 0][season] - 6 && (c.temp[0] + c.temp[1]) / 2 < [10, 20, 12, 0][season] + 8);
   const useForage = rng.chance(0.35) || !pool.length;
-  const item = useForage ? rng.pick(FORAGE.filter((f) => f.id !== 'forage.morel')).id : `crop.${rng.pick(pool).id}`;
+  const item = useForage ? rng.pick(FORAGE.filter((f) => f.id !== 'forage.morel' && (f.where !== 'orchard' || season === 1 || season === 2))).id : `crop.${rng.pick(pool).id}`;
   const unit = useForage ? getItem(item).price : CROPS.find((c) => `crop.${c.id}` === item)!.sellPrice;
   const qty = useForage ? rng.int(2, 4) : rng.int(4, 10);
   state.request = { npc: npc.id, item, qty, reward: Math.round((unit * qty * 1.7) / 10) * 10, day: state.clock.day, done: false };

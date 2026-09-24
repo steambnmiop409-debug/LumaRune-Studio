@@ -71,7 +71,9 @@ const BASE_ITEMS: ItemDef[] = [
 ];
 
 /** Wild things found around the island each morning. */
-export const FORAGE: Array<{ id: string; name: string; nameEn: string; price: number; desc: string; where: 'beach' | 'forest' | 'meadow' }> = [
+export type ForageWhere = 'beach' | 'forest' | 'meadow' | 'orchard';
+
+export const FORAGE: Array<{ id: string; name: string; nameEn: string; price: number; desc: string; where: ForageWhere }> = [
   { id: 'forage.shell', name: '조개껍데기', nameEn: 'Seashell', price: 30, desc: '파도가 밀어 올린 분홍빛 조개껍데기.', where: 'beach' },
   { id: 'forage.seaglass', name: '바다유리', nameEn: 'Sea Glass', price: 70, desc: '파도에 둥글게 닳은 초록 유리 조각. 빛에 비추면 반짝인다.', where: 'beach' },
   { id: 'forage.driftwood', name: '유목', nameEn: 'Driftwood', price: 20, desc: '바다를 떠돌다 온 매끈한 나뭇가지.', where: 'beach' },
@@ -80,7 +82,14 @@ export const FORAGE: Array<{ id: string; name: string; nameEn: string; price: nu
   { id: 'forage.pinecone', name: '솔방울', nameEn: 'Pinecone', price: 15, desc: '송진 냄새가 은은한 솔방울.', where: 'forest' },
   { id: 'forage.wildflower', name: '들꽃 다발', nameEn: 'Wildflowers', price: 40, desc: '별빛 언덕에서 꺾은 작은 들꽃들.', where: 'meadow' },
   { id: 'forage.wildberry', name: '산딸기', nameEn: 'Wild Berries', price: 55, desc: '햇볕에 잘 익은 새콤한 산딸기.', where: 'meadow' },
+  { id: 'forage.apple', name: '과수원 사과', nameEn: 'Orchard Apple', price: 65, desc: '햇살 과수원 나무에서 떨어진 새빨간 사과.', where: 'orchard' },
+  { id: 'forage.peach', name: '과수원 복숭아', nameEn: 'Orchard Peach', price: 85, desc: '솜털이 보송한 달콤한 복숭아.', where: 'orchard' },
+  { id: 'forage.pear', name: '과수원 배', nameEn: 'Orchard Pear', price: 75, desc: '물이 많고 사각거리는 노란 배.', where: 'orchard' },
+  { id: 'forage.plum', name: '과수원 자두', nameEn: 'Orchard Plum', price: 60, desc: '새콤한 보랏빛 자두.', where: 'orchard' },
 ];
+
+/** Fruit that falls from an orchard tree with this seed (matches the tree's drawn fruit). */
+export const ORCHARD_FRUIT = ['forage.apple', 'forage.peach', 'forage.pear', 'forage.plum'];
 
 function seedItem(c: CropDef): ItemDef {
   const sapling = c.form === 'tree';

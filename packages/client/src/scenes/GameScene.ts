@@ -353,7 +353,7 @@ export class GameScene implements Scene {
   private footstep() {
     const map = this.world.map;
     const t = map.terrain[Math.floor(this.py / TILE) * map.w + Math.floor(this.px / TILE)];
-    const kind = t === Terrain.Dock || t === Terrain.Bridge ? 'step_wood' : t === Terrain.Path || t === Terrain.Cobble || t === Terrain.Sand || t === Terrain.Rock ? 'step_path' : 'step_grass';
+    const kind = t === Terrain.Dock || t === Terrain.Bridge ? 'step_wood' : t === Terrain.Path || t === Terrain.Cobble || t === Terrain.Sand || t === Terrain.Rock || t === Terrain.Stairs ? 'step_path' : 'step_grass';
     this.game.audio.play(kind, { volume: 0.35 });
     if (t === Terrain.Path || t === Terrain.Sand)
       this.view.particles.burst(this.px, this.py - 1, 2, t === Terrain.Sand ? ['#f0e0b8', '#dcc690'] : ['#d8b888', '#b8986a'], 10, 6, 0, 0.35);

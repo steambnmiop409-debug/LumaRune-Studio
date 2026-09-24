@@ -15,6 +15,10 @@ export const Terrain = {
   Bridge: 10,
   River: 11,
   Pond: 12,
+  /** Vertical rock face below a plateau edge (solid). */
+  Cliff: 13,
+  /** Stone steps cut into a cliff face where a road climbs. */
+  Stairs: 14,
 } as const;
 export type TerrainId = (typeof Terrain)[keyof typeof Terrain];
 
@@ -27,6 +31,10 @@ export const Zone = {
   Meadow: 5,
   Beach: 6,
   Cape: 7,
+  Ruins: 8,
+  Orchard: 9,
+  Camp: 10,
+  Falls: 11,
 } as const;
 export type ZoneId = (typeof Zone)[keyof typeof Zone];
 
@@ -39,6 +47,10 @@ export const ZONE_NAME: Record<ZoneId, string> = {
   5: '별빛 언덕',
   6: '노을 해변',
   7: '등대 곶',
+  8: '잊힌 유적',
+  9: '햇살 과수원',
+  10: '숲속 야영지',
+  11: '은빛 폭포',
 };
 
 export function isWater(t: number): boolean {

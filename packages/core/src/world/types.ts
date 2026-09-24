@@ -40,7 +40,16 @@ export type ObjectKind =
   | 'beehive'
   | 'picnic'
   | 'telescope'
-  | 'board';
+  | 'board'
+  | 'fruittree'
+  | 'tent'
+  | 'campfire'
+  | 'logseat'
+  | 'woodpile'
+  | 'ruin'
+  | 'shrine'
+  | 'tidepool'
+  | 'gazebo';
 
 /** Decorative / blocking object anchored at a tile. */
 export interface WorldObject {
@@ -106,6 +115,10 @@ export interface WorldMap {
   /** Smooth centre-lines used to render rivers and roads without a tile staircase. */
   rivers: Stroke[];
   roads: Stroke[];
+  /** Height level per tile: 0 lowland, 1 plateau (Starlight Hill, the northern forest ridge). */
+  level: Uint8Array;
+  /** Tile keys where the river pours over a cliff face. */
+  falls: number[];
 }
 
 export type ZoneAt = (x: number, y: number) => ZoneId;

@@ -93,6 +93,8 @@ function minimap(map: WorldMap): HTMLCanvasElement {
     [Terrain.Rock]: [160, 154, 148],
     [Terrain.Dock]: [170, 120, 80],
     [Terrain.Bridge]: [170, 120, 80],
+    [Terrain.Cliff]: [150, 128, 104],
+    [Terrain.Stairs]: [200, 190, 170],
   };
   for (let i = 0; i < map.terrain.length; i++) {
     const [r, g, b] = col[map.terrain[i]] ?? [0, 0, 0];

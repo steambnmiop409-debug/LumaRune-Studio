@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Terrain, TILE, generateWorld, isFarmable, isWater, reachable } from '../src';
+import { Terrain, TILE, generateWorld, isFarmable, isWater, npcPlaces, reachable } from '../src';
 
 describe('island generation', () => {
   const map = generateWorld();
@@ -25,6 +25,24 @@ describe('island generation', () => {
         if (seen[(it.y + dy) * map.w + it.x + dx]) ok = true;
       expect(ok, `${it.kind} at ${it.x},${it.y}`).toBe(true);
     }
+  });
+
+  it('reaches the plateaus, landmarks and villager haunts on foot', () => {
+    const seen = reachable(map.w, map.h, map.spawn.x, map.spawn.y, (x, y) => !map.solid[y * map.w + x]);
+    const near = (x: number, y: number) => {
+      for (let dy = -1; dy <= 2; dy++) for (let dx = -1; dx <= 1; dx++) if (seen[(y + dy) * map.w + x + dx]) return true;
+      return false;
+    };
+    for (const k of ['tent', 'shrine', 'gazebo', 'fruittree', 'tidepool']) {
+      const o = map.objects.find((q) => q.kind === k);
+      expect(o, k).toBeDefined();
+      expect(near(o!.x, o!.y + (o!.h ?? 1)), `${k} at ${o!.x},${o!.y}`).toBe(true);
+    }
+    for (const [name, p] of Object.entries(npcPlaces(map))) expect(seen[p.y * map.w + p.x], `npc place ${name}`).toBe(1);
+    // Both plateaus exist, have cliff faces, and a staircase up.
+    expect(map.level.some((l) => l === 1)).toBe(true);
+    expect(map.terrain.filter((t) => t === Terrain.Stairs).length).toBeGreaterThanOrEqual(18);
+    expect(map.falls.length).toBeGreaterThan(0);
   });
 
   it('has a big farm and a ship floating on water', () => {

@@ -23,6 +23,8 @@ const HEIGHT: Record<number, number> = {
   [Terrain.Rock]: 4,
   [Terrain.Dock]: 5,
   [Terrain.Bridge]: 5,
+  [Terrain.Cliff]: 6,
+  [Terrain.Stairs]: 2,
 };
 
 const C = (h: string) => pack(h);
@@ -47,6 +49,14 @@ const FRESH_EDGE = rgba32(190, 232, 222, 230);
 const FOAM2 = rgba32(224, 244, 238, 200);
 const WASH = rgba32(200, 236, 230, 70);
 const SHADOW = rgba32(20, 24, 60, 70);
+const SHADOW_DEEP = rgba32(24, 20, 44, 110);
+// Warm sandstone for cliff faces, light to dark.
+const ROCKF = ['#d8c6aa', '#bfa98d', '#a58f76', '#8b7662', '#725f50', '#5a4a3f'].map(C);
+const ROCK_LINE = C('#46382f');
+const MOSS = [C('#7aa150'), C('#5f8a44')];
+const STEP = ['#e4d9c6', '#cfc2ad', '#b3a58f', '#8a7b68', '#6a5c4e'].map(C);
+const FALL = ['#e6f7f6', '#bfe8ec', '#96d4e2', '#74bcd6'].map(C);
+const FALL_FRAMES = 4;
 
 function band(colors: number[], v: number, x: number, y: number): number {
   const f = Math.max(0, Math.min(colors.length - 1.001, v * (colors.length - 1)));
@@ -118,6 +128,7 @@ function cobble(wx: number, wy: number, seed: number): number {
 interface Chunk {
   base: HTMLCanvasElement;
   foam: HTMLCanvasElement[] | null;
+  falls: HTMLCanvasElement[] | null;
   used: number;
 }
 
@@ -131,9 +142,105 @@ export class TerrainRenderer {
   private riverPieces: Piece[];
   private roadPieces: Piece[];
 
+  private fallSet: Set<number>;
+
   constructor(private map: WorldMap) {
     this.riverPieces = pieces(map.rivers);
     this.roadPieces = pieces(map.roads);
+    this.fallSet = new Set(map.falls);
+  }
+
+  private levelAt(tx: number, ty: number): number {
+    const map = this.map;
+    return tx < 0 || ty < 0 || tx >= map.w || ty >= map.h ? 0 : map.level[ty * map.w + tx];
+  }
+
+  private isFall(tx: number, ty: number): boolean {
+    return tx >= 0 && ty >= 0 && tx < this.map.w && ty < this.map.h && this.fallSet.has(ty * this.map.w + tx);
+  }
+
+  /** Vertical rock face: grass overhang, stacked boulders lit from the upper left, moss, a ragged dark foot. */
+  private cliffPixel(wx: number, wy: number): number {
+    const s = this.map.seed;
+    const tx = Math.floor(wx / TILE);
+    const ty = Math.floor(wy / TILE);
+    const faceish = (x: number, y: number) => this.tileAt(x, y) === Terrain.Cliff || this.isFall(x, y);
+    let topTile = ty;
+    while (faceish(tx, topTile - 1) && ty - topTile < 3) topTile--;
+    let botTile = ty;
+    while (faceish(tx, botTile + 1) && botTile - ty < 3) botTile++;
+    const top = topTile * TILE;
+    const fh = (botTile + 1) * TILE - top;
+    const ly = wy - top;
+    const lx = wx - tx * TILE;
+    // Grass (or forest floor) curling over the top edge, with the odd hanging tuft.
+    const above = this.groundOf(tx, topTile - 1);
+    const pal = above === Terrain.Forest ? FOREST : above === Terrain.Meadow ? MEADOW : GRASS;
+    const lip = 2 + Math.floor(valueNoise(wx / 3, 7.3, s + 70) * 3);
+    const hang = hash2(wx, 5, s + 75) < 0.2 ? 1 + Math.floor(hash2(wx, 6, s + 75) * 3) : 0;
+    if (ly < lip) return ly === lip - 1 ? pal[3] : hash2(wx, wy, s + 76) < 0.3 ? pal[1] : pal[2];
+    if (ly < lip + hang) return ly === lip + hang - 1 ? pal[3] : pal[2];
+    if (ly === lip + hang || ly === lip) return ROCK_LINE;
+    // Ragged foot where the rock meets the ground.
+    const foot = fh - 2 - Math.floor(valueNoise(wx / 4, 3.1, s + 71) * 3);
+    if (ly >= foot) return ly === foot ? ROCK_LINE : ROCKF[5];
+    // Boulders: a jittered Voronoi of rounded stones, in face-local space so rows follow the edge.
+    const CW = 14;
+    const CH = 10;
+    const gx = Math.floor(wx / CW);
+    const gy = Math.floor(ly / CH);
+    let d1 = Infinity;
+    let d2 = Infinity;
+    let rx = 0;
+    let ry = 0;
+    let cell = 0;
+    for (let oy = -1; oy <= 1; oy++)
+      for (let ox = -1; ox <= 1; ox++) {
+        const cx = gx + ox;
+        const cy = gy + oy;
+        const fx = cx * CW + 2 + hash2(cx, cy + tx * 0, s + 86) * (CW - 4);
+        const fy = cy * CH + 2 + hash2(cx, cy, s + 87) * (CH - 4);
+        const dx = wx + 0.5 - fx;
+        const dy = (ly + 0.5 - fy) * 1.25;
+        const d = Math.hypot(dx, dy);
+        if (d < d1) {
+          d2 = d1;
+          d1 = d;
+          rx = dx;
+          ry = dy;
+          cell = cy * 7919 + cx;
+        } else if (d < d2) d2 = d;
+      }
+    const gap = d2 - d1;
+    if (gap < 1.0) return ly < fh * 0.4 ? ROCKF[4] : ROCK_LINE;
+    let tone = 0.3 + hash2(cell, 3, s + 88) * 1.1 + (ly / fh) ** 1.3 * 3;
+    if (ry < -2.4) tone -= 1.3;
+    else if (ry < -1) tone -= 0.5;
+    else if (ry > 2.6) tone += 0.9;
+    if (rx < -3) tone -= 0.4;
+    else if (rx > 3.2) tone += 0.6;
+    if (gap < 1.8 && ry > 0) tone += 0.7;
+    // Rounded ends: lit on the left, in shade on the right.
+    if (!faceish(tx - 1, ty) && lx < 3) tone -= 1 - lx * 0.3;
+    if (!faceish(tx + 1, ty) && lx > 12) tone += (lx - 12) * 0.5;
+    // Moss settles on the tops of the upper stones.
+    if (ry < -1.2 && ly < fh * 0.6 && valueNoise(wx / 5, wy / 5, s + 74) > 0.62) return MOSS[hash2(wx, wy, s) < 0.6 ? 0 : 1];
+    const f = Math.max(0, Math.min(5, tone + (bayer(wx, wy) - 0.5) * 0.8));
+    return ROCKF[Math.round(f)];
+  }
+
+  /** Stone steps with side walls. */
+  private stairPixel(wx: number, wy: number): number {
+    const tx = Math.floor(wx / TILE);
+    const ty = Math.floor(wy / TILE);
+    const lx = wx - tx * TILE;
+    const st = (x: number, y: number) => this.tileAt(x, y) === Terrain.Stairs;
+    if (!st(tx - 1, ty) && lx < 3) return lx === 0 ? ROCK_LINE : ROCKF[lx === 1 ? 1 : 3];
+    if (!st(tx + 1, ty) && lx > 12) return lx === 15 ? ROCK_LINE : ROCKF[lx === 14 ? 4 : 3];
+    const top = (st(tx, ty - 1) ? ty - 1 : ty) * TILE;
+    const k = (wy - top) % 6;
+    const worn = hash2(wx, Math.floor((wy - top) / 6), this.map.seed + 79) < 0.12;
+    return k === 0 ? STEP[0] : k < 3 ? STEP[worn ? 2 : 1] : k < 5 ? STEP[2] : STEP[4];
   }
 
   private tileAt(tx: number, ty: number): number {
@@ -141,34 +248,64 @@ export class TerrainRenderer {
     return tx < 0 || ty < 0 || tx >= map.w || ty >= map.h ? Terrain.Deep : map.terrain[ty * map.w + tx];
   }
 
+  /** The ground a tile contributes when blending borders (stroke-drawn and structural tiles resolve to what lies beneath). */
+  private groundOf(tx: number, ty: number): number {
+    const t = this.tileAt(tx, ty);
+    if (t === Terrain.Path || t === Terrain.River || t === Terrain.Bridge || t === Terrain.Cobble || t === Terrain.Cliff || t === Terrain.Stairs) {
+      const map = this.map;
+      const cx = Math.max(0, Math.min(map.w - 1, tx));
+      const cy = Math.max(0, Math.min(map.h - 1, ty));
+      return map.zone[cy * map.w + cx] === Zone.Beach ? Terrain.Sand : Terrain.Grass;
+    }
+    if (t === Terrain.Dock) return Terrain.Sea;
+    return t;
+  }
+
   private terrainAtPixel(wx: number, wy: number, rivers: Piece[], roads: Piece[]): number {
-    const map = this.map;
     const tx = Math.floor(wx / TILE);
     const ty = Math.floor(wy / TILE);
     const raw = this.tileAt(tx, ty);
-    if (raw === Terrain.Dock || raw === Terrain.Bridge || raw === Terrain.Cobble) return raw;
-    const s = map.seed;
-    const ox = (valueNoise(wx / 7, wy / 7, s + 1) - 0.5) * 7;
-    const oy = (valueNoise(wx / 7, wy / 7, s + 2) - 0.5) * 7;
-    let t = this.tileAt(Math.floor((wx + ox) / TILE), Math.floor((wy + oy) / TILE));
-    if (t === Terrain.Dock || t === Terrain.Bridge || t === Terrain.Cobble) t = raw;
-    // Rivers and roads come from smooth strokes, not from the tile grid.
-    if (t === Terrain.Path || t === Terrain.River || t === Terrain.Bridge || t === Terrain.Cobble) {
-      const z = map.zone[ty * map.w + tx];
-      t = z === Zone.Beach ? Terrain.Sand : Terrain.Grass;
+    if (raw === Terrain.Dock || raw === Terrain.Bridge || raw === Terrain.Cobble || raw === Terrain.Cliff || raw === Terrain.Stairs) return raw;
+    const s = this.map.seed;
+    if (this.isFall(tx, ty)) {
+      const wob0 = (valueNoise(wx / 5, wy / 5, s + 3) - 0.5) * 2.2;
+      for (const p of rivers) if (strokeDistance(p.s, wx / TILE, wy / TILE) * TILE + wob0 < 0) return Terrain.River;
+      return Terrain.Cliff;
+    }
+    // Borders come from a bilinear vote of the four nearest tile centres (so diagonals become
+    // straight slopes and corners round off), sampled through a gentle noise warp.
+    const ox = (valueNoise(wx / 9, wy / 9, s + 1) - 0.5) * 9 + (valueNoise(wx / 3, wy / 3, s + 4) - 0.5) * 1.6;
+    const oy = (valueNoise(wx / 9, wy / 9, s + 2) - 0.5) * 9 + (valueNoise(wx / 3, wy / 3, s + 5) - 0.5) * 1.6;
+    const sx = (wx + ox) / TILE - 0.5;
+    const sy = (wy + oy) / TILE - 0.5;
+    const x0 = Math.floor(sx);
+    const y0 = Math.floor(sy);
+    const fx = sx - x0;
+    const fy = sy - y0;
+    const cand = [this.groundOf(x0, y0), this.groundOf(x0 + 1, y0), this.groundOf(x0, y0 + 1), this.groundOf(x0 + 1, y0 + 1)];
+    const wts = [(1 - fx) * (1 - fy), fx * (1 - fy), (1 - fx) * fy, fx * fy];
+    let t = cand[0];
+    let best = -1;
+    for (let k = 0; k < 4; k++) {
+      let sum = 0;
+      for (let j = 0; j < 4; j++) if (cand[j] === cand[k]) sum += wts[j];
+      if (sum > best + 1e-6) {
+        best = sum;
+        t = cand[k];
+      }
     }
     if (t === Terrain.Deep || t === Terrain.Sea) return t;
-    const fx = wx / TILE;
-    const fy = wy / TILE;
+    const fxw = wx / TILE;
+    const fyw = wy / TILE;
     const wob = (valueNoise(wx / 5, wy / 5, s + 3) - 0.5) * 2.2;
     for (const p of rivers) {
       if (wx < p.x0 - 4 || wx > p.x1 + 4 || wy < p.y0 - 4 || wy > p.y1 + 4) continue;
-      if (strokeDistance(p.s, fx, fy) * TILE + wob < 0) return Terrain.River;
+      if (strokeDistance(p.s, fxw, fyw) * TILE + wob < 0) return Terrain.River;
     }
     if (t === Terrain.Pond) return t;
     for (const p of roads) {
       if (wx < p.x0 - 4 || wx > p.x1 + 4 || wy < p.y0 - 4 || wy > p.y1 + 4) continue;
-      if (strokeDistance(p.s, fx, fy) * TILE + wob * 0.7 < 0) return Terrain.Path;
+      if (strokeDistance(p.s, fxw, fyw) * TILE + wob * 0.7 < 0) return Terrain.Path;
     }
     return t;
   }
@@ -248,6 +385,23 @@ export class TerrainRenderer {
         let col: number;
         const h = hash2(wx, wy, seed + 77);
 
+        const ptx = Math.floor(wx / TILE);
+        const pty = Math.floor(wy / TILE);
+        if (t === Terrain.River && this.isFall(ptx, pty)) {
+          // Falling water: bright vertical ribbons.
+          const r = valueNoise(wx / 2.5, wy / 40, seed + 81);
+          col = band(FALL, r * 0.9 + ((wy - pty * TILE) / 32) * 0.3, wx, wy);
+          out[py * CHUNK_PX + px] = col;
+          continue;
+        }
+        if (t === Terrain.Cliff) {
+          out[py * CHUNK_PX + px] = this.cliffPixel(wx, wy);
+          continue;
+        }
+        if (t === Terrain.Stairs) {
+          out[py * CHUNK_PX + px] = this.stairPixel(wx, wy);
+          continue;
+        }
         if (WATER.has(t)) {
           const d = dWater[i] / 2; // px to land
           if (d < 12) hasShore = true;
@@ -256,7 +410,8 @@ export class TerrainRenderer {
             col = band(FRESH, Math.min(1, d / 10 + 0.1), wx, wy);
           } else {
             const e = this.elevAt(wx, wy);
-            const depth = Math.max(0, Math.min(1, -e * 2.2 + d / 70 + 0.08));
+            // Depth from the island-wide elevation (continuous across chunks) plus a shallow shelf by the shore.
+            const depth = Math.max(0, Math.min(1, -e * 2.4 + 0.08 + Math.min(d, 10) / 28));
             col = band(SEA, depth, wx, wy);
           }
           // Land casts a soft shadow onto the water right below it.
@@ -339,6 +494,35 @@ export class TerrainRenderer {
               col = GRASS[1];
           }
 
+          // Plateau rims: a rocky lip where the high ground drops away to the west, east or north.
+          if (this.levelAt(ptx, pty) === 1 && t !== Terrain.Path) {
+            const lxp = wx - ptx * TILE;
+            const lyp = wy - pty * TILE;
+            const jit = Math.round((valueNoise(wx / 4, wy / 4, seed + 80) - 0.5) * 2.4);
+            const drop = (dx: number, dy: number) => {
+              if (this.levelAt(ptx + dx, pty + dy) !== 0) return false;
+              const nt = this.tileAt(ptx + dx, pty + dy);
+              return nt !== Terrain.Cliff && nt !== Terrain.Stairs && !WATER.has(nt) && nt !== Terrain.Path;
+            };
+            // Side walls read as a narrow rock band; the far (north) edge is a thinner lip.
+            let side = 99;
+            let north = 99;
+            if (drop(-1, 0)) side = Math.min(side, lxp + jit);
+            if (drop(1, 0)) side = Math.min(side, 15 - lxp + jit);
+            if (drop(0, -1)) north = lyp + jit;
+            // Corner tiles: follow the diagonal neighbours too so the band wraps around.
+            if (side > 5 && north > 5) {
+              if (drop(-1, -1) && !drop(-1, 0) && !drop(0, -1)) side = Math.min(side, Math.max(lxp, lyp) + jit);
+              if (drop(1, -1) && !drop(1, 0) && !drop(0, -1)) side = Math.min(side, Math.max(15 - lxp, lyp) + jit);
+            }
+            const d = Math.min(side, north + 1);
+            if (d <= 0) col = ROCK_LINE;
+            else if (d <= 6 && side <= north + 1) {
+              const tone = [4, 3, 2, 1, 1][d - 1] ?? 0;
+              col = d === 6 ? (t === Terrain.Forest ? FOREST[3] : t === Terrain.Meadow ? MEADOW[3] : GRASS[3]) : ROCKF[Math.min(5, tone + (hash2(wx, Math.floor(wy / 3), seed + 82) < 0.3 ? 1 : 0))];
+            } else if (d <= 3) col = d === 1 ? ROCKF[3] : d === 2 ? ROCKF[1] : t === Terrain.Forest ? FOREST[3] : t === Terrain.Meadow ? MEADOW[3] : GRASS[3];
+          }
+
           // Banks: land that meets water just below shows an earthy 2px edge.
           if (t !== Terrain.Dock && t !== Terrain.Bridge) {
             if (WATER.has(below) || WATER.has(below2)) {
@@ -371,7 +555,28 @@ export class TerrainRenderer {
       for (let py = 0; py < CHUNK_PX; py++)
         for (let px = 0; px < CHUNK_PX; px++) {
           const t = T(px, py);
-          if (!WATER.has(t)) continue;
+          if (!WATER.has(t)) {
+            if (t === Terrain.Cliff || t === Terrain.Stairs) continue;
+            // Cliffs throw a short shadow onto the ground at their foot; rims shade the lowland beside them.
+            const a1 = T(px, py - 1);
+            const a3 = T(px, py - 3);
+            const wx = x0 + MARGIN + px;
+            const wy = y0 + MARGIN + py;
+            const ptx = Math.floor(wx / TILE);
+            const pty = Math.floor(wy / TILE);
+            const lxp = wx - ptx * TILE;
+            let shade = 0;
+            if (a1 === Terrain.Cliff) shade = 2;
+            else if (a3 === Terrain.Cliff || T(px, py - 2) === Terrain.Cliff) shade = 1;
+            else if (this.levelAt(ptx, pty) === 0) {
+              if ((lxp < 2 && this.levelAt(ptx - 1, pty) === 1) || (lxp > 13 && this.levelAt(ptx + 1, pty) === 1)) shade = 1;
+            }
+            if (shade) {
+              sd[py * CHUNK_PX + px] = shade === 2 ? SHADOW_DEEP : SHADOW;
+              any = true;
+            }
+            continue;
+          }
           for (let k = 1; k <= 4; k++) {
             const a = T(px, py - k);
             if (a === Terrain.Dock || a === Terrain.Bridge) {
@@ -421,7 +626,43 @@ export class TerrainRenderer {
         foam.push(fc);
       }
     }
-    return { base, foam, used: this.frame };
+    let fallsFx: HTMLCanvasElement[] | null = null;
+    const hasFall = this.map.falls.some((k) => {
+      const fx = (k % this.map.w) * TILE;
+      const fy = Math.floor(k / this.map.w) * TILE;
+      return fx >= x0 - TILE && fx < x0 + S + TILE && fy >= y0 - TILE && fy < y0 + S + TILE * 2;
+    });
+    if (hasFall) {
+      fallsFx = [];
+      for (let f = 0; f < FALL_FRAMES; f++) {
+        const fimg = new ImageData(CHUNK_PX, CHUNK_PX);
+        const fo = new Uint32Array(fimg.data.buffer);
+        for (let py = 0; py < CHUNK_PX; py++)
+          for (let px = 0; px < CHUNK_PX; px++) {
+            const ty2 = T(px, py);
+            if (ty2 !== Terrain.River && ty2 !== Terrain.Pond) continue;
+            const wx = x0 + MARGIN + px;
+            const wy = y0 + MARGIN + py;
+            const ptx = Math.floor(wx / TILE);
+            const pty = Math.floor(wy / TILE);
+            if (ty2 === Terrain.River && this.isFall(ptx, pty)) {
+              // Streaks sliding down, each column at its own pace.
+              const speed = 1 + Math.floor(hash2(wx, 0, seed + 83) * 2);
+              const k = (((wy - f * 4 * speed + Math.floor(hash2(wx, 1, seed + 84) * 16)) % 16) + 16) % 16;
+              if (k < 3) fo[py * CHUNK_PX + px] = k === 0 ? FOAM : FOAM2;
+            } else if ((this.isFall(ptx, pty - 1) || this.isFall(ptx, pty - 2)) && wy - pty * TILE < 12) {
+              // Churning white water at the plunge.
+              const r = hash2(wx, wy, seed + 85 + f);
+              if (r < 0.55 - (wy - pty * TILE) * 0.07) fo[py * CHUNK_PX + px] = r < 0.25 ? FOAM : FOAM2;
+            }
+          }
+        const fc = document.createElement('canvas');
+        fc.width = fc.height = CHUNK_PX;
+        fc.getContext('2d')!.putImageData(fimg, 0, 0);
+        fallsFx.push(fc);
+      }
+    }
+    return { base, foam, falls: fallsFx, used: this.frame };
   }
 
   private get(cx: number, cy: number): Chunk {
@@ -482,6 +723,7 @@ export class TerrainRenderer {
         const c = this.get(cx, cy);
         ctx.drawImage(c.base, dx, dy);
         if (c.foam) ctx.drawImage(c.foam[frame], dx, dy);
+        if (c.falls) ctx.drawImage(c.falls[Math.floor(time * 10) % FALL_FRAMES], dx, dy);
       }
   }
 }

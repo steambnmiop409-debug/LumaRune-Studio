@@ -23,7 +23,7 @@ const AUTUMN = ['#e0923a', '#d0703a', '#e8b04a', '#c85a3a'];
 const BLOSSOM = ['#f0b0c4', '#f5c0cf', '#eaa3bb'];
 
 /** Paints a canopy made of overlapping blobs with clump shading. */
-function canopy(p: Pix, blobs: Array<[number, number, number, number]>, base: string, seed: number, cell = 5, speckle?: string) {
+export function canopy(p: Pix, blobs: Array<[number, number, number, number]>, base: string, seed: number, cell = 5, speckle?: string) {
   const pal = canopyPalette(base);
   const inside = (x: number, y: number) => blobs.some(([cx, cy, rx, ry]) => ((x + 0.5 - cx) / rx) ** 2 + ((y + 0.5 - cy) / ry) ** 2 <= 1);
   let minY = Infinity;
@@ -46,7 +46,7 @@ function canopy(p: Pix, blobs: Array<[number, number, number, number]>, base: st
     }
 }
 
-function trunk(p: Pix, cx: number, top: number, bottom: number, w: number, bark = '#8a5a3a') {
+export function trunk(p: Pix, cx: number, top: number, bottom: number, w: number, bark = '#8a5a3a') {
   const l = light(bark, 1);
   const d = shade(bark, 1);
   const dd = shade(bark, 2);
