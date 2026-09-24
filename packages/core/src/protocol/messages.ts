@@ -25,6 +25,7 @@ export type ClientMessage =
   | { t: 'pack'; slot: number; qty: number }
   | { t: 'sleep' }
   | { t: 'cancelSleep' }
+  | { t: 'pause'; on: boolean }
   | { t: 'debug'; cmd: string; arg?: number };
 
 export interface PlayerPublic {
