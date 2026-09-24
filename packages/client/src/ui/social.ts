@@ -29,7 +29,7 @@ function heartsRow(ctx: CanvasRenderingContext2D, x: number, y: number, points: 
 function portrait(ctx: CanvasRenderingContext2D, npcId: string, x: number, y: number, blink: boolean) {
   const npc = NPC_BY_ID.get(npcId)!;
   const sheet = Sprites.character(npc.look);
-  const img = blink ? sheet.blink.down : sheet.idle.down;
+  const img = sheet.frame('down', -1, 'free', blink).img;
   ctx.fillStyle = P.ink;
   ctx.fillRect(x - 1, y - 1, 40, 42);
   ctx.fillStyle = '#bcd8e8';
@@ -140,7 +140,7 @@ export class BoardPanel implements Panel {
     NPCS.forEach((n, i) => {
       const ry = y + 126 + i * 19;
       const f = this.world.state.npcs[n.id];
-      const img = Sprites.character(n.look).idle.down;
+      const img = Sprites.character(n.look).frame('down', -1).img;
       c.drawImage(img, 0, 1, img.width, 16, x + 14, ry - 1, img.width, 16);
       const nw = drawText(c, n.name, x + 36, ry + 2, { font: 'small' });
       const talked = f?.talked === this.world.clock.day;

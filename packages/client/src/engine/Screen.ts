@@ -15,10 +15,16 @@ export class Screen {
   height = BASE_H;
   scale = 1;
   dpr = 1;
+  /** Player's zoom choice: 0 = automatic, otherwise a whole-number pixel scale. */
   forcedScale = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
+    try {
+      this.forcedScale = Number(localStorage.getItem('lumina:zoom')) || 0;
+    } catch {
+      /* storage unavailable */
+    }
     this.out = canvas.getContext('2d', { alpha: false })!;
     this.buffer = document.createElement('canvas');
     this.ctx = this.buffer.getContext('2d')!;
@@ -48,8 +54,12 @@ export class Screen {
       devW = Math.round(window.innerWidth * this.dpr);
       devH = Math.round(window.innerHeight * this.dpr);
     }
-    const auto = Math.max(1, Math.floor(Math.min(devW / BASE_W, devH / BASE_H)));
-    this.scale = this.forcedScale > 0 ? Math.min(auto, this.forcedScale) : auto;
+    // The biggest whole-number scale that still shows the full 640×360 design view…
+    const fit = Math.max(1, Math.floor(Math.min(devW / BASE_W, devH / BASE_H)));
+    // …but by default aim for a view about 440 pixels tall, so a 720p window and a 1080p full screen
+    // keep the same pixel size (going full screen shows more of the island instead of zooming in).
+    const auto = Math.max(1, Math.min(fit, Math.round(devH / 440)));
+    this.scale = this.forcedScale > 0 ? Math.min(fit, this.forcedScale) : auto;
     // Only touch the canvases when something changed (resizing clears them).
     const w = Math.ceil(devW / this.scale);
     const h = Math.ceil(devH / this.scale);
@@ -65,6 +75,28 @@ export class Screen {
     }
     this.ctx.imageSmoothingEnabled = false;
     this.out.imageSmoothingEnabled = false;
+  }
+
+  /** Largest zoom the current window allows. */
+  get maxScale(): number {
+    const [w, h] = this.devSize ?? [Math.round(window.innerWidth * this.dpr), Math.round(window.innerHeight * this.dpr)];
+    return Math.max(1, Math.floor(Math.min(w / BASE_W, h / BASE_H)));
+  }
+
+  /** Sets the zoom (0 = automatic) and remembers it. */
+  setZoom(scale: number): void {
+    this.forcedScale = scale;
+    try {
+      localStorage.setItem('lumina:zoom', String(scale));
+    } catch {
+      /* ignore */
+    }
+    this.resize();
+  }
+
+  toggleFullscreen(): void {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void document.documentElement.requestFullscreen?.().catch(() => {});
   }
 
   present(): void {

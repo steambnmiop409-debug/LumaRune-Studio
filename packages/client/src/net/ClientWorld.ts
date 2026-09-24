@@ -42,6 +42,10 @@ export class ClientWorld {
   correction: { x: number; y: number } | null = null;
   soilVersion = 0;
   private tickAt = performance.now();
+  private sub = 0;
+  private rate = 1;
+  /** Last minute handed out, so the smooth clock never runs backwards within a day. */
+  private shown = { day: -1, minute: 0 };
 
   constructor(you: string, state: WorldState) {
     this.me = you;
@@ -69,10 +73,16 @@ export class ClientWorld {
     return this.state.placed;
   }
 
-  /** Smooth, locally extrapolated minute for sky rendering. */
+  /**
+   * Smooth game minute for rendering (sky, shadows, villagers walking): the server's minute plus how
+   * far into it the server was, extrapolated since the last tick — never jumping backwards.
+   */
   minute(paused: boolean): number {
-    const ahead = paused ? 0 : Math.min(1.5, (performance.now() - this.tickAt) / MS_PER_GAME_MINUTE);
-    return this.clock.minute + ahead;
+    const ahead = paused ? 0 : ((performance.now() - this.tickAt) / MS_PER_GAME_MINUTE) * this.rate;
+    let m = Math.min(this.clock.minute + this.sub + ahead, this.clock.minute + 1.999);
+    if (this.shown.day === this.clock.day && m < this.shown.minute && this.shown.minute - m < 3) m = this.shown.minute;
+    this.shown = { day: this.clock.day, minute: m };
+    return m;
   }
 
   apply(msg: ServerMessage): void {
@@ -81,6 +91,8 @@ export class ClientWorld {
         const newDay = msg.clock.day !== this.clock.day;
         this.clock = msg.clock;
         this.tickAt = performance.now();
+        this.sub = msg.sub ?? 0;
+        this.rate = msg.rate ?? 1;
         this.weather = msg.weather;
         this.forecast = msg.forecast;
         this.gold = msg.gold;

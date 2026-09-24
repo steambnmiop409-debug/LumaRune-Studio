@@ -197,20 +197,42 @@ function slab(wx: number, wy: number, seed: number): { tone: number; edge: numbe
   return { tone, edge };
 }
 
+/** The pixels of one chunk: the ground, plus animation frames of shore foam and waterfalls. */
+export interface ChunkPixels {
+  base: ImageData;
+  foam: ImageData[] | null;
+  falls: ImageData[] | null;
+}
+
+type Img = CanvasImageSource & { width: number; height: number };
+
 interface Chunk {
-  base: HTMLCanvasElement;
-  foam: HTMLCanvasElement[] | null;
-  falls: HTMLCanvasElement[] | null;
+  base: Img;
+  foam: Img[] | null;
+  falls: Img[] | null;
   used: number;
 }
 
+/** Alpha-blends packed RGBA `src` over opaque `dst` (both little-endian ABGR words). */
+function blendOver(dst: Uint32Array, src: Uint32Array): void {
+  for (let i = 0; i < dst.length; i++) {
+    const s = src[i];
+    const a = s >>> 24;
+    if (!a) continue;
+    const d = dst[i];
+    const k = a / 255;
+    const r = (d & 255) + ((s & 255) - (d & 255)) * k;
+    const g = ((d >>> 8) & 255) + (((s >>> 8) & 255) - ((d >>> 8) & 255)) * k;
+    const b = ((d >>> 16) & 255) + (((s >>> 16) & 255) - ((d >>> 16) & 255)) * k;
+    dst[i] = ((255 << 24) | (Math.round(b) << 16) | (Math.round(g) << 8) | Math.round(r)) >>> 0;
+  }
+}
+
 /**
- * Renders the island terrain pixel-by-pixel into 256×256 chunk canvases.
- * Borders between terrain types are wobbled with noise so the tile grid disappears.
+ * Paints the island terrain pixel-by-pixel into 256×256 chunks. Pure computation (no DOM),
+ * so it runs in a worker; borders between terrain types are wobbled with noise so the tile grid disappears.
  */
-export class TerrainRenderer {
-  private chunks = new Map<number, Chunk>();
-  private frame = 0;
+export class TerrainBuilder {
   private riverPieces: Piece[];
   private roadPieces: Piece[];
 
@@ -222,12 +244,10 @@ export class TerrainRenderer {
   private M = SEASON_PALS[1].m;
 
   setSeason(season: number): void {
-    if (season === this.season) return;
     this.season = season;
     this.G = SEASON_PALS[season].g;
     this.F = SEASON_PALS[season].f;
     this.M = SEASON_PALS[season].m;
-    this.chunks.clear();
   }
   /** Centre of the plaza fountain, in world pixels (the paving fans out around it). */
   private fountain: { x: number; y: number } | null;
@@ -444,7 +464,7 @@ export class TerrainRenderer {
     return (a + (b - a) * tx) * (1 - ty) + (c + (d - c) * tx) * ty;
   }
 
-  private build(cx: number, cy: number): Chunk {
+  build(cx: number, cy: number): ChunkPixels {
     const S = CHUNK_PX + MARGIN * 2;
     const x0 = cx * CHUNK_PX - MARGIN;
     const y0 = cy * CHUNK_PX - MARGIN;
@@ -741,15 +761,9 @@ export class TerrainRenderer {
       }
     }
 
-    const base = document.createElement('canvas');
-    base.width = base.height = CHUNK_PX;
-    base.getContext('2d')!.putImageData(img, 0, 0);
-
     // Dock & bridge planks cast a shadow on the water below; pilings poke out of the water.
     {
-      const ctx = base.getContext('2d')!;
-      const shadow = new ImageData(CHUNK_PX, CHUNK_PX);
-      const sd = new Uint32Array(shadow.data.buffer);
+      const sd = new Uint32Array(CHUNK_PX * CHUNK_PX);
       let any = false;
       for (let py = 0; py < CHUNK_PX; py++)
         for (let px = 0; px < CHUNK_PX; px++) {
@@ -786,15 +800,10 @@ export class TerrainRenderer {
             if (!WATER.has(a)) break;
           }
         }
-      if (any) {
-        const sc = document.createElement('canvas');
-        sc.width = sc.height = CHUNK_PX;
-        sc.getContext('2d')!.putImageData(shadow, 0, 0);
-        ctx.drawImage(sc, 0, 0);
-      }
+      if (any) blendOver(out, sd);
     }
 
-    let foam: HTMLCanvasElement[] | null = null;
+    let foam: ImageData[] | null = null;
     if (hasShore) {
       foam = [];
       for (let f = 0; f < FOAM_FRAMES; f++) {
@@ -819,13 +828,10 @@ export class TerrainRenderer {
             else if (d < wave) fo[py * CHUNK_PX + px] = WASH;
           }
         }
-        const fc = document.createElement('canvas');
-        fc.width = fc.height = CHUNK_PX;
-        fc.getContext('2d')!.putImageData(fimg, 0, 0);
-        foam.push(fc);
+        foam.push(fimg);
       }
     }
-    let fallsFx: HTMLCanvasElement[] | null = null;
+    let fallsFx: ImageData[] | null = null;
     const hasFall = this.map.falls.some((k) => {
       const fx = (k % this.map.w) * TILE;
       const fy = Math.floor(k / this.map.w) * TILE;
@@ -855,50 +861,137 @@ export class TerrainRenderer {
               if (r < 0.55 - (wy - pty * TILE) * 0.07) fo[py * CHUNK_PX + px] = r < 0.25 ? FOAM : FOAM2;
             }
           }
-        const fc = document.createElement('canvas');
-        fc.width = fc.height = CHUNK_PX;
-        fc.getContext('2d')!.putImageData(fimg, 0, 0);
-        fallsFx.push(fc);
+        fallsFx.push(fimg);
       }
     }
-    return { base, foam, falls: fallsFx, used: this.frame };
+    return { base: img, foam, falls: fallsFx };
+  }
+}
+
+interface Built {
+  key: number;
+  base: Img;
+  foam: Img[] | null;
+  falls: Img[] | null;
+}
+
+/** Turns chunk pixels into drawable images (bitmaps in a worker, canvases as a fallback). */
+function toCanvas(img: ImageData): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = img.width;
+  c.height = img.height;
+  c.getContext('2d')!.putImageData(img, 0, 0);
+  return c;
+}
+
+const chunkKey = (season: number, cx: number, cy: number) => season * 1_000_000 + cy * 1000 + cx;
+
+/**
+ * Draws the terrain from a cache of chunk images. Chunks are painted in a background worker ahead of
+ * the camera, nearest first, so walking never waits on terrain generation; after a season change the
+ * old chunks stay on screen until the new season's are ready. Only a chunk that is needed right now
+ * and not yet painted is built on the spot (e.g. after waking up at home).
+ */
+export class TerrainRenderer {
+  private builder: TerrainBuilder;
+  private chunks = new Map<number, Chunk>();
+  private frame = 0;
+  season = 1;
+  private worker: Worker | null = null;
+  private inFlight = new Set<number>();
+
+  constructor(private map: WorldMap) {
+    this.builder = new TerrainBuilder(map);
+    try {
+      this.worker = new Worker(new URL('./terrainWorker.ts', import.meta.url), { type: 'module' });
+      this.worker.onmessage = (e: MessageEvent<Built>) => this.accept(e.data);
+      this.worker.onerror = () => {
+        this.worker = null;
+        this.inFlight.clear();
+      };
+      this.worker.postMessage({ t: 'init', map });
+    } catch {
+      this.worker = null;
+    }
   }
 
+  setSeason(season: number): void {
+    this.season = season;
+  }
+
+  private accept(b: Built) {
+    this.inFlight.delete(b.key);
+    this.chunks.set(b.key, { base: b.base, foam: b.foam, falls: b.falls, used: this.frame });
+    this.evict();
+  }
+
+  private evict() {
+    if (this.chunks.size <= 56) return;
+    let oldest = Infinity;
+    let oldKey = -1;
+    for (const [k, v] of this.chunks)
+      if (v.used < oldest) {
+        oldest = v.used;
+        oldKey = k;
+      }
+    const c = this.chunks.get(oldKey);
+    this.chunks.delete(oldKey);
+    // Bitmaps hold GPU memory until closed.
+    for (const img of [c?.base, ...(c?.foam ?? []), ...(c?.falls ?? [])]) (img as ImageBitmap | undefined)?.close?.();
+  }
+
+  private inMap(cx: number, cy: number) {
+    return cx >= 0 && cy >= 0 && cx * CHUNK_PX < this.map.w * TILE && cy * CHUNK_PX < this.map.h * TILE;
+  }
+
+  /** The chunk to draw: this season's, else any season's already painted, else painted now. */
   private get(cx: number, cy: number): Chunk {
-    const key = cy * 1000 + cx;
+    const key = chunkKey(this.season, cx, cy);
     let c = this.chunks.get(key);
     if (!c) {
-      c = this.build(cx, cy);
+      for (let s = 0; s < 4 && !c; s++) c = s !== this.season ? this.chunks.get(chunkKey(s, cx, cy)) : undefined;
+      if (c && !this.inFlight.has(key)) this.request(cx, cy);
+    }
+    if (!c) {
+      this.builder.setSeason(this.season);
+      const px = this.builder.build(cx, cy);
+      c = { base: toCanvas(px.base), foam: px.foam?.map(toCanvas) ?? null, falls: px.falls?.map(toCanvas) ?? null, used: this.frame };
       this.chunks.set(key, c);
-      if (this.chunks.size > 48) {
-        let oldest = -1;
-        let oldKey = -1;
-        for (const [k, v] of this.chunks)
-          if (oldest < 0 || v.used < oldest) {
-            oldest = v.used;
-            oldKey = k;
-          }
-        this.chunks.delete(oldKey);
-      }
+      this.evict();
     }
     c.used = this.frame;
     return c;
   }
 
-  /** Builds one not-yet-cached chunk near the view (spread work over frames). */
+  private request(cx: number, cy: number) {
+    const key = chunkKey(this.season, cx, cy);
+    if (!this.worker || this.inFlight.has(key)) return;
+    this.inFlight.add(key);
+    this.worker.postMessage({ t: 'build', key, cx, cy, season: this.season });
+  }
+
+  /** Queues the nearest missing chunks around the view (two chunks of margin) for the worker. */
   prefetch(camX: number, camY: number, w: number, h: number): void {
-    const cx0 = Math.floor((camX - CHUNK_PX) / CHUNK_PX);
-    const cy0 = Math.floor((camY - CHUNK_PX) / CHUNK_PX);
-    const cx1 = Math.floor((camX + w + CHUNK_PX) / CHUNK_PX);
-    const cy1 = Math.floor((camY + h + CHUNK_PX) / CHUNK_PX);
+    if (!this.worker || this.inFlight.size >= 2) return;
+    const mx = camX + w / 2;
+    const my = camY + h / 2;
+    const cx0 = Math.floor((camX - CHUNK_PX * 2) / CHUNK_PX);
+    const cy0 = Math.floor((camY - CHUNK_PX * 2) / CHUNK_PX);
+    const cx1 = Math.floor((camX + w + CHUNK_PX * 2) / CHUNK_PX);
+    const cy1 = Math.floor((camY + h + CHUNK_PX * 2) / CHUNK_PX);
+    let best: [number, number] | null = null;
+    let bestD = Infinity;
     for (let cy = cy0; cy <= cy1; cy++)
       for (let cx = cx0; cx <= cx1; cx++) {
-        if (cx < 0 || cy < 0 || cx * CHUNK_PX >= this.map.w * TILE || cy * CHUNK_PX >= this.map.h * TILE) continue;
-        if (!this.chunks.has(cy * 1000 + cx)) {
-          this.get(cx, cy);
-          return;
+        const key = chunkKey(this.season, cx, cy);
+        if (!this.inMap(cx, cy) || this.chunks.has(key) || this.inFlight.has(key)) continue;
+        const d = Math.hypot((cx + 0.5) * CHUNK_PX - mx, (cy + 0.5) * CHUNK_PX - my);
+        if (d < bestD) {
+          bestD = d;
+          best = [cx, cy];
         }
       }
+    if (best) this.request(best[0], best[1]);
   }
 
   /** Draws terrain for the view rectangle. `time` in seconds drives the foam animation. */
@@ -914,7 +1007,7 @@ export class TerrainRenderer {
       for (let cx = cx0; cx <= cx1; cx++) {
         const dx = cx * CHUNK_PX - camX;
         const dy = cy * CHUNK_PX - camY;
-        if (cx < 0 || cy < 0 || cx * CHUNK_PX >= this.map.w * TILE || cy * CHUNK_PX >= this.map.h * TILE) {
+        if (!this.inMap(cx, cy)) {
           ctx.fillStyle = '#254f78';
           ctx.fillRect(dx, dy, CHUNK_PX, CHUNK_PX);
           continue;

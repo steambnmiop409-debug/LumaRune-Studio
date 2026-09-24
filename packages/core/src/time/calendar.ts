@@ -1,6 +1,8 @@
 /** Real milliseconds per in-game minute. */
 export const MS_PER_GAME_MINUTE = 700;
 export const DAY_START = 6 * 60;
+/** The earliest you can go to bed (19:00): no sleeping the day away to skip ahead. */
+export const SLEEP_FROM = 19 * 60;
 /** 02:00 of the next day — forced sleep. */
 export const DAY_END = 26 * 60;
 export const SHIP_DEPARTURE = 17 * 60;

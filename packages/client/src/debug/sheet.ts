@@ -93,7 +93,10 @@ export async function sheet(): Promise<void> {
     looks[5] = { ...looks[5], hairStyle: 0, top: 0, hat: 0 };
     looks.forEach((look, n) => {
       const sh = Sprites.character(look);
-      const frames = page === '5' ? sh.walk.down.concat(sh.walk.right) : [...dirs.map((d) => sh.idle[d]), sh.breathe.down, sh.raise.down, sh.strike.down, sh.raise.right, sh.strike.right, sh.carry.down[0], sh.carry.right[1], sh.raise.up];
+      const frames =
+        page === '5'
+          ? [0, 2, 4, 6].map((w) => sh.frame('down', w).img).concat([0, 2, 4, 6].map((w) => sh.frame('right', w).img))
+          : [...dirs.map((d) => sh.frame(d, -1).img), sh.frame('down', -1, 'free', false, true).img, sh.frame('down', -1, 'raise').img, sh.frame('down', -1, 'strike').img, sh.frame('right', -1, 'raise').img, sh.frame('right', -1, 'strike').img, sh.frame('down', 0, 'carry').img, sh.frame('right', 1, 'carry').img, sh.frame('up', -1, 'raise').img];
       frames.slice(0, 12).forEach((f, i) => ctx.drawImage(f, 4 + (i % 12) * 36, 2 + n * 66, 32, 64));
     });
   }

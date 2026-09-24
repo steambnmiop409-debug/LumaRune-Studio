@@ -16,6 +16,20 @@ export type Sfx =
   | 'step_grass'
   | 'step_path'
   | 'step_wood'
+  | 'step_sand'
+  | 'step_snow'
+  | 'step_stone'
+  | 'step_soil'
+  | 'step_leaves'
+  | 'step_splash'
+  | 'swing'
+  | 'pick'
+  | 'scythe'
+  | 'ladder'
+  | 'page'
+  | 'slot'
+  | 'drop'
+  | 'splash'
   | 'refill'
   | 'crate'
   | 'horn'
@@ -26,12 +40,30 @@ export type Sfx =
   | 'chime'
   | 'sparkle';
 
-export type Ambience = 'sea' | 'rain' | 'wind' | 'birds' | 'crickets';
+export type Ambience = 'sea' | 'rain' | 'wind' | 'birds' | 'crickets' | 'cave';
 /** Music: the title theme, a day theme for each season, evening, night, rain and the mine. */
 export type Track = 'title' | 'spring' | 'summer' | 'autumn' | 'winter' | 'evening' | 'night' | 'rain' | 'mine';
 export const SEASON_TRACK: readonly Track[] = ['spring', 'summer', 'autumn', 'winter'];
 
-const SFX_VARIANTS: Partial<Record<Sfx, number>> = { step_grass: 4, step_path: 4, step_wood: 3, hoe: 3, harvest: 2, pop: 3 };
+const SFX_VARIANTS: Partial<Record<Sfx, number>> = {
+  step_grass: 4,
+  step_path: 4,
+  step_wood: 3,
+  step_sand: 4,
+  step_snow: 4,
+  step_stone: 4,
+  step_soil: 3,
+  step_leaves: 3,
+  step_splash: 3,
+  swing: 2,
+  pick: 3,
+  scythe: 2,
+  page: 2,
+  splash: 2,
+  hoe: 3,
+  harvest: 2,
+  pop: 3,
+};
 
 export class AudioManager {
   private ctx: AudioContext | null = null;

@@ -532,7 +532,210 @@ const BUN: HairStyle = {
   },
 };
 
-export const HAIR_STYLES: readonly HairStyle[] = [SHORT, BOB, LONG, PONYTAIL, CURLY, BUN];
+const SPIKY: HairStyle = {
+  down: {
+    front: [
+      2,
+      [
+        '...X..X.X..X....',
+        '..XHXXHXHXXHX...',
+        '..XHKHHKHHKHhX..',
+        '.XHKKHHHHKHHhX..',
+        '.XHKHHHHHHHHhhX.',
+        'XHHHHHHHHHHHHhhX',
+        'XHhHHhHHHhHHhhhX',
+        'XhhHh.hH.hHh.hhX',
+        'Xh............hX',
+        '.X............X.',
+      ],
+    ],
+  },
+  up: {
+    front: [
+      2,
+      [
+        '...X..X.X..X....',
+        '..XHXXHXHXXHX...',
+        '..XHKHHKHHKHhX..',
+        '.XHKKHHHHKHHhX..',
+        '.XHKHHHHHHHHhhX.',
+        'XHHHHHHHHHHHHhhX',
+        'XHHHHHHHHHHHhhhX',
+        'XhHHHHHHHHHHhhhX',
+        'XhHHHHHHHHHhhhhX',
+        '.XhHHhHHhHhhhhX.',
+        '..XhXXhXXhXXhX..',
+        '...X..X..X..X...',
+      ],
+    ],
+  },
+  right: {
+    front: [
+      2,
+      [
+        '....X..X.X......',
+        '...XHXXHXHXX....',
+        '..XHKHHKHHKHX...',
+        '.XHKKHHHHKHHHX..',
+        '.XHKHHHHHHHHHHX.',
+        'XHHHHHHHHHHHHhhX',
+        'XHHHHHHHHhhHhhX.',
+        'XHHHHHHhh.h.hX..',
+        'XhHHHH..........',
+        'XhhHh...........',
+        '.XhX............',
+        '..X.............',
+      ],
+    ],
+  },
+};
+
+const TWINTAIL: HairStyle = {
+  down: {
+    front: [
+      3,
+      [
+        '.....XXXXXX.....',
+        '...XXHHKKHHXX...',
+        '..XHHKKKHHHHhX..',
+        '.XHHKKHHHHHHhhX.',
+        '.XHKHHHHHHHHHhX.',
+        'XHHHHHHHHHHHHhhX',
+        'XrHHHhHHHHhHHrhX',
+        'XrHh.hHh.HhH.rhX',
+        'XHh..........hhX',
+        'XHhX........XHhX',
+        'XHKX........XHhX',
+        'XHhX........XKhX',
+        'XHhX........XHhX',
+        'XhhX........XhhX',
+        '.XX..........XX.',
+      ],
+    ],
+  },
+  up: {
+    front: [
+      3,
+      [
+        '.....XXXXXX.....',
+        '...XXHHHHHHXX...',
+        '..XHHKKHHHHHhX..',
+        '.XHHKKHHHHHHhhX.',
+        '.XHKHHHHHHHHHhX.',
+        'XHHHHHHHHHHHHhhX',
+        'XrHHHHHHHHHHHrhX',
+        'XrHHHHHHHHHHhrhX',
+        'XhHHHHHHHHHHhhhX',
+        'XHhHHHKHHHHHhHhX',
+        'XHhXhHHhHhhXXHhX',
+        'XHKX.XXXXXX.XKhX',
+        'XHhX........XHhX',
+        'XhhX........XhhX',
+        '.XX..........XX.',
+      ],
+    ],
+  },
+  right: {
+    front: [
+      3,
+      [
+        '.....XXXXXX.....',
+        '...XXHHKKHHXX...',
+        '..XHHKKKHHHHHX..',
+        '.XHHKKHHHHHHHHX.',
+        '.XHKHHHHHHHHHHX.',
+        'XHHHHHHHHHHHHhhX',
+        'XrrHHHHHHhhHhhX.',
+        'XrrHHHHHh.h.hX..',
+        'XHhHHHH.........',
+        'XHhXhh..........',
+        'XHKX............',
+        'XHhX............',
+        'XHhX............',
+        'XhhX............',
+        '.XX.............',
+      ],
+    ],
+  },
+};
+
+const SIDEPART: HairStyle = {
+  down: {
+    front: [
+      3,
+      [
+        '.....XXXXXX.....',
+        '...XXHHHKKHXX...',
+        '..XHHHHKKKHHhX..',
+        '.XHKKKKHHHHHhhX.',
+        '.XKKHHHHHHHHHhX.',
+        'XHHHHHHHHHHHHhhX',
+        'XHHHHHHHHhhhhhhX',
+        'XHHHHHHhh.hHh.hX',
+        'XhHHh........hhX',
+        '.XhX..........X.',
+      ],
+    ],
+  },
+  up: {
+    front: [
+      3,
+      [
+        '.....XXXXXX.....',
+        '...XXHHHHHHXX...',
+        '..XHHHHKKHHHhX..',
+        '.XHHHKKHHHHHhhX.',
+        '.XHKKHHHHHHHHhX.',
+        'XHHHHHHHHHHHHhhX',
+        'XHHHHHHHHHHHHhhX',
+        'XHHHHHHHHHHHhhhX',
+        'XhHHHHHHHHHHhhhX',
+        'XhHHHHHHHHHhhhhX',
+        '.XhHHhHHhHhhhhX.',
+        '..XhhXhhXhhhhX..',
+        '...XX.XX.XXXX...',
+      ],
+    ],
+  },
+  right: {
+    front: [
+      3,
+      [
+        '.....XXXXXX.....',
+        '...XXHHKKKHXX...',
+        '..XHHKKKHHHHHX..',
+        '.XHKKHHHHHHHHHX.',
+        '.XKHHHHHHHHHHHX.',
+        'XHHHHHHHHHHHHhhX',
+        'XHHHHHHHHHHhhhhX',
+        'XHHHHHHHhhh.hhX.',
+        'XhHHHHH......X..',
+        'XhHHHHh.........',
+        'XhhHHh..........',
+        '.XhhhX..........',
+        '..XXX...........',
+      ],
+    ],
+  },
+};
+
+/** Long hair with a wave: the straight style, its strands swept into diagonal curls. */
+function waved(style: HairStyle): HairStyle {
+  const curl = ([y0, rows]: Tpl): Tpl => [
+    y0,
+    rows.map((row, i) =>
+      i < 7
+        ? row
+        : Array.from(row)
+            .map((c, x) => (c === 'H' ? ((x + i) % 4 === 0 ? 'K' : (x + i) % 4 === 2 ? 'h' : 'H') : c))
+            .join(''),
+    ),
+  ];
+  const part = (d: { front: Tpl; back?: Tpl }) => ({ front: curl(d.front), back: d.back ? curl(d.back) : undefined });
+  return { down: part(style.down), up: part(style.up), right: part(style.right) };
+}
+
+export const HAIR_STYLES: readonly HairStyle[] = [SHORT, BOB, LONG, PONYTAIL, CURLY, BUN, SPIKY, TWINTAIL, SIDEPART, waved(LONG)];
 
 // ─────────────────────────────── TORSO ───────────────────────────────
 // Rows 18..23 (dress continues to 26). Styles: 0 tee · 1 overalls · 2 sweater · 3 dress.
@@ -714,5 +917,23 @@ export const HATS_T: ReadonlyArray<{ down: Tpl; up: Tpl; right: Tpl } | null> = 
     down: [0, ['.......GG.......', '......GRRG......', '......GqqG......', '....GGGGGGGG....', '...GRQRQRQRqG...', '..GRQRQRQRQqqG..', '.GQRQRQRQRQRqqG.', '.GrrrrrrrrrrrrG.', '.GqqqqqqqqqqqqG.', '..GGGGGGGGGGGG..']],
     up: [0, ['.......GG.......', '......GRRG......', '......GqqG......', '....GGGGGGGG....', '...GRQRQRQRqG...', '..GRQRQRQRQqqG..', '.GQRQRQRQRQRqqG.', '.GrrrrrrrrrrrrG.', '.GqqqqqqqqqqqqG.', '..GGGGGGGGGGGG..']],
     right: [0, ['......GG........', '.....GRRG.......', '.....GqqG.......', '....GGGGGGGG....', '...GRQRQRQRqG...', '..GRQRQRQRQqqG..', '.GQRQRQRQRQRqqG.', '.GrrrrrrrrrrrrG.', '.GqqqqqqqqqqqG..', '..GGGGGGGGGGG...']],
+  },
+  // Bandana, knotted at the back.
+  {
+    down: [3, ['.....GGGGGG.....', '...GGRRQQQQGG...', '..GRRQRQQQRQqG..', '.GRQQQQQRQQQqqG.', '.GQQRQQQQQQRqqG.', '.GrrrrrrrrrrrrG.', '..GGGGGGGGGGGG..']],
+    up: [3, ['.....GGGGGG.....', '...GGRQQQQQGG...', '..GRQQRQQQRQqG..', '.GQQQQQQRQQQqqG.', '.GQQRQQQQQQRqqG.', '.GrrrrrrrrrrrrG.', '..GGGGGqqGGGGG..', '......GqqG......', '.....GqGGqG.....']],
+    right: [3, ['.....GGGGGG.....', '...GGRRQQQQG....', '..GRRQRQQQRqG...', '.GRQQQQQRQQQqG..', '.GQQRQQQQQQRqqG.', 'GqrrrrrrrrrrrrG.', 'GqGGGGGGGGGGGG..', '.G..............']],
+  },
+  // Cap with a peak.
+  {
+    down: [2, ['................', '.....GGGGGG.....', '...GGRRQQQqGG...', '..GRRQQQQQQQqG..', '.GRQQQQrQQQQqqG.', '.GQQQQQQQQQQqqG.', '.GrrrrrrrrrrrrG.', '..GRRRRRRRRRRG..', '...GGGGGGGGGG...']],
+    up: [2, ['................', '.....GGGGGG.....', '...GGRQQQQqGG...', '..GRQQQQQQQQqG..', '.GQQQQQQQQQQqqG.', '.GQQQQQQQQQQqqG.', '.GqqqqGGGGqqqqG.', '..GGGG....GGGG..']],
+    right: [2, ['................', '....GGGGGG......', '..GGRRQQQqGG....', '.GRRQQQQQQQqG...', 'GRQQQQQQQQQqqG..', 'GQQQQQQQQQQQqG..', 'GrrrrrrrrrrrrGGG', '.GGGGGGGGRRRRRRG', '.........GGGGGG.']],
+  },
+  // Flower crown.
+  {
+    down: [5, ['..Gr.GRG.Gr.GRG.', '.GRrGQGQGRrGQGRG', '.QGQQGGGQGGQQGQ.']],
+    up: [5, ['..Gr.GRG.Gr.GRG.', '.GRrGQGQGRrGQGRG', '.QGQQGGGQGGQQGQ.']],
+    right: [5, ['...GRG.Gr.GRG...', '..GQGRrGQGRrGQG.', '..QGGQGQQGGQGQ..']],
   },
 ];

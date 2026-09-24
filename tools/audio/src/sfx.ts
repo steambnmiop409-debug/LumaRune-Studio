@@ -67,6 +67,169 @@ export const SFX_RECIPES: SfxRecipe[] = [
     },
   },
   {
+    name: 'step_sand',
+    variants: 4,
+    level: -11,
+    // Sand: a dull, muffled footfall that sinks in, with a soft shh of grains (cabasa, low-passed).
+    async make(v) {
+      const r = rng(110 + v);
+      let step = await oneShot(KIT.sfx, v % 2 ? SFX.footsteps1 : SFX.footsteps2, 70, 0.6);
+      step = lowpass(resample(trim(step, -45), 0.8 + r() * 0.12), 1500);
+      const shh = lowpass(highpass(await oneShot(KIT.standard, STD.cabasa, 34 + v * 4, 0.5), 1200), 4200);
+      return fade(mix(step, trim(shh, -42), 0.01, 0.45), 0.004, 0.08);
+    },
+  },
+  {
+    name: 'step_snow',
+    variants: 4,
+    level: -15,
+    // Fresh snow: a slowed scratch for the squeaky crunch, over a soft footfall.
+    async make(v) {
+      const r = rng(120 + v);
+      const crunch = lowpass(highpass(resample(trim(await oneShot(KIT.sfx, SFX.scratch, 60 + v * 6, 0.6), -40), 0.55 + r() * 0.12), 500), 5000);
+      const step = lowpass(resample(trim(await oneShot(KIT.sfx, SFX.footsteps2, 70, 0.6), -45), 0.9), 1800);
+      return fade(trim(mix(gain(crunch, 0.8), step, 0.006, 0.7), -48), 0.003, 0.09);
+    },
+  },
+  {
+    name: 'step_stone',
+    variants: 4,
+    level: -8,
+    // Stone and cobbles: a hard, bright footfall with a faint heel click.
+    async make(v) {
+      const r = rng(130 + v);
+      let step = await oneShot(KIT.sfx, v % 2 ? SFX.footsteps2 : SFX.footsteps1, 100, 0.6);
+      step = highpass(resample(trim(step, -45), 1.02 + r() * 0.12), 260);
+      eq(step, 4200, 4);
+      const click = highpass(trim(await oneShot(KIT.standard, STD.sideStick, 22 + v * 3, 0.3), -40), 2500);
+      return fade(mix(step, click, 0.003, 0.35), 0.001, 0.05);
+    },
+  },
+  {
+    name: 'step_soil',
+    variants: 3,
+    level: -10,
+    // Tilled earth: a soft thump that gives a little.
+    async make(v) {
+      const thump = lowpass(await oneShot(KIT.standard, STD.kick, 34 + v * 6, 0.4), 300);
+      const step = lowpass(resample(trim(await oneShot(KIT.sfx, SFX.footsteps1, 75, 0.6), -45), 0.78 + v * 0.05), 1300);
+      return fade(trim(mix(gain(thump, 0.6), step, 0.004, 0.9), -48), 0.002, 0.07);
+    },
+  },
+  {
+    name: 'step_leaves',
+    variants: 3,
+    level: -13,
+    // Dry autumn leaves: a crackle of scratch and cabasa over a soft step.
+    async make(v) {
+      const r = rng(140 + v);
+      const crackle = highpass(resample(trim(await oneShot(KIT.sfx, SFX.scratch, 55 + v * 8, 0.6), -40), 1.1 + r() * 0.2), 1400);
+      const rustle = highpass(await oneShot(KIT.standard, STD.cabasa, 40, 0.4), 2500);
+      const step = lowpass(trim(await oneShot(KIT.sfx, SFX.footsteps2, 70, 0.6), -45), 2000);
+      return fade(trim(mix(mix(step, crackle, 0.01, 0.6), trim(rustle, -40), 0.02, 0.4), -48), 0.002, 0.08);
+    },
+  },
+  {
+    name: 'step_splash',
+    variants: 3,
+    level: -13,
+    // A step into a rain puddle: slap and a burble of bubbles.
+    async make(v) {
+      const slap = lowpass(trim(await oneShot(KIT.sfx, SFX.slap, 60 + v * 8, 0.5), -40), 3000);
+      const bub = await render(hit(KIT.sfx, SFX.bubble, 90, 0, 2), 2, false);
+      return fade(trim(mix(slap, highpass(resample(slice(bub, 0.3 + v * 0.2, 0.7 + v * 0.2), 1.3), 600), 0.01, 0.6), -48), 0.002, 0.1);
+    },
+  },
+  {
+    name: 'swing',
+    variants: 2,
+    level: -14,
+    // A tool cutting the air: a brush swirl, sped up and thinned.
+    async make(v) {
+      const swirl = await oneShot(KIT.brush, 40, 70, 0.6);
+      return fade(highpass(resample(trim(swirl, -45), 1.6 + v * 0.25), 1800), 0.01, 0.08);
+    },
+  },
+  {
+    name: 'pick',
+    variants: 3,
+    level: -6,
+    // Pickaxe on rock: a hard side-stick crack, a ringing metallic ping and a gritty crunch.
+    async make(v) {
+      const r = rng(150 + v);
+      const crack = await oneShot(KIT.standard, STD.sideStick, 110, 0.4);
+      const ping = await render(voice(0, GM.tinkleBell, [[0, 88 + v * 2, 0.15, 60]], { reverb: 20 }), 0.8);
+      const grit = resample(trim(await oneShot(KIT.sfx, SFX.footsteps2, 120, 0.6), -45), 0.6 + r() * 0.1);
+      let out = mix(crack, gain(highpass(ping, 2000), 0.5), 0, 1);
+      out = mix(out, lowpass(grit, 3000), 0.01, 0.7);
+      return fade(trim(out, -50), 0.001, 0.15);
+    },
+  },
+  {
+    name: 'scythe',
+    variants: 2,
+    level: -10,
+    // A scythe through grass: a swift swish and the snip of stems.
+    async make(v) {
+      const swish = highpass(resample(trim(await oneShot(KIT.brush, 40, 90, 0.6), -45), 1.3 + v * 0.2), 1200);
+      const snip = highpass(trim(await oneShot(KIT.standard, STD.cabasa, 70, 0.3), -40), 3000);
+      return fade(mix(swish, snip, 0.05, 0.6), 0.005, 0.08);
+    },
+  },
+  {
+    name: 'ladder',
+    variants: 1,
+    level: -8,
+    // Climbing a wooden ladder: four knocks of hands and boots on the rungs.
+    async make() {
+      let out = silence(1.1);
+      for (let k = 0; k < 4; k++) {
+        const knock = lowpass(trim(await oneShot(KIT.standard, k % 2 ? STD.lowWood : STD.hiWood, 60 - k * 6, 0.4), -45), 2200);
+        out = mix(out, resample(knock, 0.9 - k * 0.04), k * 0.22, 0.8 - k * 0.1);
+      }
+      return fade(out, 0.002, 0.2);
+    },
+  },
+  {
+    name: 'page',
+    variants: 2,
+    level: -12,
+    // Turning a page of the journal: a light scratch, high-passed paper swish.
+    async make(v) {
+      const swish = highpass(resample(trim(await oneShot(KIT.sfx, SFX.scratch, 50, 0.6), -40), 1.5 + v * 0.3), 2200);
+      return fade(swish, 0.01, 0.12);
+    },
+  },
+  {
+    name: 'slot',
+    variants: 1,
+    level: -12,
+    // Picking an item up in the bag: a small wooden tick.
+    async make() {
+      return fade(trim(resample(await oneShot(KIT.standard, STD.hiWood, 50, 0.3), 1.35), -45), 0.001, 0.05);
+    },
+  },
+  {
+    name: 'drop',
+    variants: 1,
+    level: -11,
+    // Setting an item down in a slot: a soft, lower tock.
+    async make() {
+      return fade(trim(lowpass(await oneShot(KIT.standard, STD.lowWood, 50, 0.3), 2500), -45), 0.001, 0.06);
+    },
+  },
+  {
+    name: 'splash',
+    variants: 2,
+    level: -8,
+    // Something falling into water: a slap and a big burble.
+    async make(v) {
+      const slap = trim(await oneShot(KIT.sfx, SFX.slap, 90, 0.5), -40);
+      const bub = await render(hit(KIT.sfx, SFX.bubble, 110, 0, 2), 2, false);
+      return fade(mix(lowpass(slap, 2500), slice(bub, 0.2 + v * 0.3, 1.0 + v * 0.3), 0.02, 0.8), 0.002, 0.3);
+    },
+  },
+  {
     name: 'hoe',
     variants: 3,
     level: -5,
@@ -371,6 +534,20 @@ export const AMB_RECIPES: AmbRecipe[] = [
       for (let t = 0.5; t < 23; t += 1.2 + r() * 2.8) tweets.push([t, 84 + Math.floor(r() * 10), 0.18 + r() * 0.2, 40 + Math.floor(r() * 30)]);
       const extra = await render(voice(0, GM.birdTweet, tweets, { reverb: 50, pan: 0.4 }), 25);
       return highpass(mix(base, slice(extra, 1, 25), 0, 0.5), 450);
+    },
+  },
+  {
+    name: 'cave',
+    level: -10,
+    // Underground: a low draft through the tunnels and water dripping into still pools, far and near.
+    async make() {
+      const r = rng(91);
+      const draft = lowpass(await held(SFX.wind, 25, 70), 700);
+      const drips: Array<[number, number, number, number]> = [];
+      for (let t = 0.4; t < 23.5; t += 0.5 + r() * 1.8) drips.push([t, 84 + Math.floor(r() * 12), 0.08, 30 + Math.floor(r() * 45)]);
+      const drops = await render(voice(0, GM.marimba, drips, { reverb: 110, pan: 0.2 }), 25);
+      const bub = await held(SFX.bubble, 25, 40);
+      return mix(mix(draft, highpass(slice(drops, 0.5, 25), 900), 0, 0.5), lowpass(bub, 1800), 0, 0.15);
     },
   },
   {

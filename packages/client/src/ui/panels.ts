@@ -27,6 +27,7 @@ import {
   NPC_BY_ID,
 } from '@lumina/core';
 import { Sprites } from '../art/Sprites';
+import { WALK_FRAMES } from '../art/sprites/character';
 import { P, shade } from '../art/palette';
 import type { AudioManager } from '../audio/AudioManager';
 import { drawText, measure, wrap } from '../engine/text';
@@ -251,7 +252,7 @@ export class JournalPanel implements Panel {
     c.fillStyle = P.paperShade;
     c.fillRect(rx + 12, fy - 6, pw - 24, 1);
     const dir = (['down', 'left', 'up', 'right'] as const)[Math.floor(this.time / 1.2) % 4];
-    c.drawImage(sheet.walk[dir][Math.floor(this.time * 8) % 6], rx + 14, fy, 32, 64);
+    c.drawImage(sheet.frame(dir, Math.floor(this.time * 13) % WALK_FRAMES).img, rx + 14, fy, 32, 64);
     drawText(c, p.name, rx + 56, fy + 4, { font: 'bold' });
     drawText(c, p.farmName, rx + 56, fy + 18, { font: 'small', color: P.inkSoft });
     c.drawImage(Sprites.coin(), rx + 56, fy + 34);

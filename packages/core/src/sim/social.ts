@@ -22,11 +22,13 @@ export const hearts = (f: Friendship) => Math.min(MAX_HEARTS, Math.floor(f.point
 
 /** The villager standing at (or right next to) tile (x, y), if any. */
 export function npcAt(map: WorldMap, minute: number, x: number, y: number): string | null {
-  for (const p of allNpcPoses(map, minute)) {
-    const tx = p.x / TILE;
-    const ty = (p.y - 6) / TILE;
-    if (Math.abs(tx - (x + 0.5)) < 1.1 && Math.abs(ty - (y + 0.5)) < 1.3) return p.id;
-  }
+  // The server's clock is whole minutes while clients see villagers mid-stride: check across the minute.
+  for (const m of [minute, minute + 0.5, minute + 1])
+    for (const p of allNpcPoses(map, m)) {
+      const tx = p.x / TILE;
+      const ty = (p.y - 6) / TILE;
+      if (Math.abs(tx - (x + 0.5)) < 1.1 && Math.abs(ty - (y + 0.5)) < 1.3) return p.id;
+    }
   return null;
 }
 

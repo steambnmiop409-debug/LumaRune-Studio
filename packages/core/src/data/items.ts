@@ -38,6 +38,35 @@ export interface ItemDef {
   placeable?: PlaceableKind;
 }
 
+/**
+ * How a held item is carried, by its kind: tools are gripped at the side, the watering can hangs from
+ * its handle, small goods (produce, forage, gems, artisan goods, seeds, fertilizer, materials) are held
+ * in both hands in front, and bulky things (machines, sprinklers, crates, carts) are lifted overhead.
+ */
+export type HoldStyle = 'none' | 'tool' | 'can' | 'front' | 'overhead';
+
+export function holdStyle(def: ItemDef): HoldStyle {
+  switch (def.kind) {
+    case 'tool':
+      return def.tool === 'can' ? 'can' : 'tool';
+    case 'placeable':
+    case 'crate':
+    case 'upgrade':
+      return 'overhead';
+    case 'produce':
+    case 'forage':
+    case 'gem':
+    case 'artisan':
+    case 'seed':
+    case 'fertilizer':
+    case 'tonic':
+    case 'material':
+      return 'front';
+    default:
+      return 'none';
+  }
+}
+
 /** Watering can capacity by tier. */
 export const CAN_CAPACITY = [0, 20, 40, 70] as const;
 

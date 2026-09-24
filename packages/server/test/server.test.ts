@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DAY_START, DEFAULT_APPEARANCE, MS_PER_GAME_MINUTE, SHIP_DEPARTURE, type ServerMessage } from '@lumina/core';
+import { DAY_START, DEFAULT_APPEARANCE, MS_PER_GAME_MINUTE, SHIP_DEPARTURE, SLEEP_FROM, type ServerMessage } from '@lumina/core';
 import { GameServer, MemoryStore } from '../src';
 
 function harness() {
@@ -27,6 +27,10 @@ describe('GameServer', () => {
     server.update((SHIP_DEPARTURE - DAY_START) * MS_PER_GAME_MINUTE);
     expect(inbox.some((m) => m.t === 'event' && m.e.t === 'shipDeparted')).toBe(true);
     expect(server.world!.ship.present).toBe(false);
+    // Too early to sleep, and it has to be in bed.
+    await server.handle('c1', { t: 'sleep' });
+    expect(server.world!.clock.day).toBe(0);
+    server.update((SLEEP_FROM - SHIP_DEPARTURE) * MS_PER_GAME_MINUTE);
     await server.handle('c1', { t: 'sleep' });
     expect(server.world!.clock.day).toBe(1);
     expect(inbox.some((m) => m.t === 'event' && m.e.t === 'dayStart')).toBe(true);

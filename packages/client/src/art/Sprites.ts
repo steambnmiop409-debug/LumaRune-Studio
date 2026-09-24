@@ -18,6 +18,7 @@ function sourceColor(source: string | null): string {
 }
 import { buildingSprite, windmillSails, type BuildingSprite } from './sprites/buildings';
 import { characterSheet, type CharacterSheet } from './sprites/character';
+import { heldTool, type HeldSprite } from './sprites/held';
 import { cropSprite, deadCropSprite, produceIcon, seedIcon } from './sprites/crops';
 import { ITEM_ICONS } from './sprites/items';
 import { forageGround, forageIcon, noticeBoard } from './sprites/forage';
@@ -251,8 +252,12 @@ class SpriteCache {
     return this.get(`dead:${tall}`, () => deadCropSprite(tall));
   }
   character(look: Appearance): CharacterSheet {
-    const key = `char:${look.skin}.${look.hairStyle}.${look.hairColor}.${look.eyes}.${look.top}.${look.topColor}.${look.bottomColor}.${look.hat}`;
+    const key = `char:${look.skin}.${look.hairStyle}.${look.hairColor}.${look.eyes}.${look.top}.${look.topColor}.${look.bottomColor}.${look.hat}.${look.eyeShape ?? 0}.${look.bottom ?? 0}.${look.shoes ?? 0}.${look.accessory ?? 0}`;
     return this.get(key, () => characterSheet(look));
+  }
+  /** A tool as it looks carried in the hand. */
+  held(tool: 'hoe' | 'scythe' | 'pick' | 'can', view: 'front' | 'side', tier = 1): HeldSprite {
+    return this.get(`held:${tool}:${view}:${tier}`, () => heldTool(tool, view, tier));
   }
 
   /** 16×16 icon for any item id. */

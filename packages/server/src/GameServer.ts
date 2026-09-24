@@ -1,5 +1,6 @@
 import {
   DAY_END,
+  SLEEP_FROM,
   DEFAULT_WORLD_SEED,
   HOTBAR_SIZE,
   INVENTORY_SIZE,
@@ -260,10 +261,15 @@ export class GameServer {
       case 'chest':
         if (Number.isInteger(msg.slot) && msg.slot >= 0 && (msg.from === 'inv' || msg.from === 'chest')) fail(chestMove(ctx, p, msg.id | 0, msg.from, msg.slot));
         break;
-      case 'sleep':
+      case 'sleep': {
+        // Only at night, and only in bed (the client can't skip the day on its own).
+        const bed = this.map!.interactables.find((i) => i.kind === 'bed');
+        const atBed = !!bed && Math.hypot(bed.x * TILE + 8 - p.x, bed.y * TILE + 8 - (p.y - 4)) < 48 && !p.floor;
+        if (this.state!.clock.minute < SLEEP_FROM || !atBed) break;
         p.sleeping = true;
         this.checkSleep();
         break;
+      }
       case 'cancelSleep':
         p.sleeping = false;
         break;
@@ -494,9 +500,13 @@ export class GameServer {
         held: p.inv[p.sel]?.id ?? null,
         floor: p.floor,
       }));
+    const active = [...this.sessions.values()].filter((s) => s.playerId);
+    const paused = active.length > 0 && active.every((s) => s.paused);
     this.broadcast({
       t: 'tick',
       clock: { ...state.clock },
+      sub: Math.min(0.999, this.acc / MS_PER_GAME_MINUTE),
+      rate: paused ? 0 : this.timeScale,
       weather: state.weather,
       forecast: state.forecast,
       players,

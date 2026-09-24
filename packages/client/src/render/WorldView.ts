@@ -37,6 +37,8 @@ export interface ViewPlayer {
   /** Active tool swing: item id and progress 0..1. */
   swing?: { item: string; t: number } | null;
   blink?: boolean;
+  /** Item in hand (shown held the way its kind is carried). */
+  held?: string | null;
 }
 
 export interface ViewInput {
@@ -71,6 +73,10 @@ interface Drawable {
 const TREE_KINDS = new Set(['oak', 'pine', 'blossom', 'palm', 'fruittree']);
 const LANDMARKS = new Set(['tent', 'campfire', 'logseat', 'woodpile', 'ruin', 'shrine', 'tidepool', 'gazebo', 'parasol', 'sandcastle', 'buoy', 'cave', 'rail', 'minecart', 'orepile', 'workbench']);
 const SPRINKLERS = new Set(['sprinkler1', 'sprinkler2', 'sprinkler3']);
+/** Where a crop's ground line sits inside its tile, by growth step (seed in the middle → roots at the foot). */
+const CROP_GROUND = [10, 10, 11, 12, 13];
+/** Small props drawn with `Sprites.detail`. */
+const DETAIL_KINDS = new Set(['tallgrass', 'pebbles', 'mushroom', 'lilypad', 'log', 'boat', 'netrack', 'fishcrate', 'anchor', 'stall', 'flowerbed', 'laundry', 'haybale', 'scarecrow', 'beehive', 'picnic', 'telescope']);
 
 export class WorldView {
   readonly terrain: TerrainRenderer;
@@ -90,6 +96,10 @@ export class WorldView {
   /** Last drawn growth step per soil tile, for the grow-in cross-fade. */
   private cropSteps = new Map<number, { step: number; prev: number; t: number }>();
   private ambientT = 0;
+  /** Sprites to paint ahead of time around the camera (see `warm`). */
+  private warmQueue: Array<() => unknown> = [];
+  private warmAt = 0;
+  private warmKey = '';
 
   constructor(readonly map: WorldMap) {
     this.terrain = new TerrainRenderer(map);
@@ -223,6 +233,47 @@ export class WorldView {
           }
     }
     this.terrain.prefetch(this.camX, this.camY, vw, vh);
+    this.warm(vw, vh, input, season);
+  }
+
+  /**
+   * Every tree, rock and prop on the island is its own drawing, generated the first time it is seen.
+   * To keep that off the frames that need it, paint the sprites around the camera (nearest first)
+   * a few milliseconds per frame before they scroll into view.
+   */
+  private warm(vw: number, vh: number, input: ViewInput, season: SeasonLook) {
+    const key = `${Math.floor(this.camX / 192)},${Math.floor(this.camY / 192)},${season}`;
+    if (key !== this.warmKey) {
+      this.warmKey = key;
+      const cx = this.camX + vw / 2;
+      const cy = this.camY + vh / 2;
+      const jobs: Array<[number, () => unknown]> = [];
+      const R = Math.max(vw, vh) * 1.4;
+      const add = (x: number, y: number, f: () => unknown) => {
+        const d = Math.hypot(x * TILE - cx, y * TILE - cy);
+        if (d < R) jobs.push([d, f]);
+      };
+      const map = this.map;
+      for (const o of map.objects) {
+        if (Math.abs(o.x * TILE - cx) > R || Math.abs(o.y * TILE - cy) > R) continue;
+        if (TREE_KINDS.has(o.kind)) add(o.x, o.y, () => Sprites.tree(o.kind as 'oak', o.v, season));
+        else if (LANDMARKS.has(o.kind)) add(o.x, o.y, () => [0, 1, 2].map((f) => Sprites.landmark(o.kind, o.v, f)));
+        else if (o.kind === 'bush') add(o.x, o.y, () => Sprites.bush(o.v, season));
+        else if (o.kind === 'rock') add(o.x, o.y, () => Sprites.rock(o.v));
+        else if (o.kind === 'flowers') add(o.x, o.y, () => [Sprites.flowers(o.v, 0), Sprites.flowers(o.v, 1)]);
+        else if (o.kind === 'reeds') add(o.x, o.y, () => [Sprites.reeds(o.v, 0), Sprites.reeds(o.v, 1)]);
+        else if (o.kind === 'flowerpot') add(o.x, o.y, () => Sprites.flowerpot(o.v));
+        else if (DETAIL_KINDS.has(o.kind)) add(o.x, o.y, () => [Sprites.detail(o.kind, o.v, 0), Sprites.detail(o.kind, o.v, 1)]);
+      }
+      for (const k of Object.keys(input.debris).map(Number)) add(k % map.w, Math.floor(k / map.w), () => [0, 1].map((f) => Sprites.debris(input.debris[k], k, f, season)));
+      for (const k of Object.keys(input.nodes).map(Number)) add(k % map.w, Math.floor(k / map.w), () => Sprites.outcrop(input.nodes[k], k));
+      for (const k of Object.keys(input.forage).map(Number)) add(k % map.w, Math.floor(k / map.w), () => Sprites.forage(input.forage[k]));
+      jobs.sort((a, b) => a[0] - b[0]);
+      this.warmQueue = jobs.map((j) => j[1]);
+      this.warmAt = 0;
+    }
+    const t0 = performance.now();
+    while (this.warmAt < this.warmQueue.length && performance.now() - t0 < 2.5) this.warmQueue[this.warmAt++]();
   }
 
   render(ctx: CanvasRenderingContext2D, vw: number, vh: number, input: ViewInput): void {
@@ -542,11 +593,13 @@ export class WorldView {
       track.t = Math.min(1, track.t + 1 / 60 / 1.2);
       const img = crop.dead ? Sprites.deadCrop(def.form === 'vine' || def.form === 'stalk' || def.form === 'tall') : Sprites.crop(crop.id, step);
       const prevImg = !crop.dead && track.prev !== step && track.t < 1 ? Sprites.crop(crop.id, track.prev) : null;
+      // Seeds and sprouts sit in the middle of their tile; as the plant grows its roots settle to the tile's foot.
+      const ground = y * TILE + CROP_GROUND[Math.min(step, CROP_GROUND.length - 1)];
       const sx = x * TILE + 8 - CROP_W / 2 - cx;
-      const sy = y * TILE + 13 - (CROP_H - 3) - cy;
+      const sy = ground - (CROP_H - 3) - cy;
       // Gentle sway for tall plants in the wind.
       const sway = step >= 5 && (def.form === 'stalk' || def.form === 'grain' || def.form === 'tall') ? Math.round(Math.sin(this.time * 1.8 + x * 0.9) * input.weather.wind * 1.2) : 0;
-      if (step >= 3 || crop.dead) shadows.cast(img, sx, sy, y * TILE + 13 - cy);
+      if (step >= 3 || crop.dead) shadows.cast(img, sx, sy, ground - cy);
       drawables.push({
         y: y * TILE + 12,
         draw: () => {
@@ -702,12 +755,11 @@ export class WorldView {
 
     // Players.
     for (const pl of input.players) {
-      const { img, frame } = actorFrame(pl, this.time);
+      const f = actorFrame(pl, this.time);
       const [px, py] = actorPos(pl, cx, cy);
       shadow(pl.x, pl.y, 5, 1.8);
-      shadows.cast(img, px, py, pl.y - cy);
-      drawables.push({ y: pl.y, draw: () => drawActor(ctx, pl, img, frame, px, py) });
-      if (lit) lights.push({ x: pl.x - cx, y: pl.y - 10 - cy, r: 40, color: '#ffe6b0', a: 0.55 });
+      shadows.cast(f.img, px, py, pl.y - cy);
+      drawables.push({ y: pl.y, draw: () => drawActor(ctx, pl, f, px, py) });
     }
 
     drawables.push(...this.critters.groundDrawables(ctx, cx, cy));

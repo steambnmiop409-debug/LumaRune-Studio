@@ -4,8 +4,8 @@ import { TILE } from '../world/tiles';
 import type { WorldMap } from '../world/types';
 import type { Dir } from '../state/types';
 
-/** NPC walking speed, in tiles per game minute. */
-const SPEED = 3.5;
+/** NPC walking speed, in tiles per game minute (a stroll: a bit over half the player's walk). */
+export const NPC_SPEED = 2.4;
 
 export function npcPlaces(map: WorldMap): Record<Place, { x: number; y: number }> {
   const b = (k: string, n = 0) => map.buildings.filter((x) => x.kind === k)[n];
@@ -60,26 +60,56 @@ export interface NpcPose {
   moving: boolean;
 }
 
-/** Where an NPC is at `minute` — deterministic, so server and client agree without syncing. */
+interface Leg {
+  start: number;
+  end: number;
+  path: Array<[number, number]>;
+}
+
+const legCache = new Map<string, Leg[]>();
+
+/**
+ * A villager's day as walks: each leg sets off at its scheduled time, or as soon as the previous walk
+ * arrives if that runs late — so nobody ever skips ahead to a place they haven't walked to.
+ */
+function dayLegs(npc: NpcDef, map: WorldMap, places: Record<Place, { x: number; y: number }>): Leg[] {
+  const key = `${map.seed}:${npc.id}`;
+  let legs = legCache.get(key);
+  if (!legs) {
+    legs = [];
+    const sch = npc.schedule;
+    let t = -Infinity;
+    for (let i = 0; i < sch.length; i++) {
+      const path = route(map, places[sch[(i - 1 + sch.length) % sch.length][1]], places[sch[i][1]]);
+      const start = Math.max(sch[i][0], t);
+      t = start + Math.max(0, path.length - 1) / NPC_SPEED;
+      legs.push({ start, end: t, path });
+    }
+    legCache.set(key, legs);
+  }
+  return legs;
+}
+
+const toPx = (t: [number, number]) => ({ x: t[0] * TILE + TILE / 2, y: t[1] * TILE + TILE - 2 });
+
+/** Where an NPC is at `minute` (fractional) — deterministic, so server and client agree without syncing. */
 export function npcPose(npc: NpcDef, map: WorldMap, minute: number, places = npcPlaces(map)): NpcPose {
-  const sch = npc.schedule;
-  let i = sch.length - 1;
-  for (let k = 0; k < sch.length; k++) if (minute >= sch[k][0]) i = k;
-  const from = places[sch[(i - 1 + sch.length) % sch.length][1]];
-  const to = places[sch[i][1]];
-  const path = route(map, from, to);
-  const walked = (minute - sch[i][0]) * SPEED;
-  const toPx = (t: [number, number]) => ({ x: t[0] * TILE + TILE / 2, y: t[1] * TILE + TILE - 2 });
-  if (minute >= sch[0][0] && walked < path.length - 1 && i > 0) {
+  const legs = dayLegs(npc, map, places);
+  // Before the first walk of the day they are still where the last one ended (home).
+  let leg = legs[legs.length - 1];
+  for (const l of legs) if (minute >= l.start) leg = l;
+  const walking = minute >= legs[0].start && minute < leg.end && leg.path.length > 1;
+  if (walking) {
+    const walked = (minute - leg.start) * NPC_SPEED;
     const k = Math.floor(walked);
     const f = walked - k;
-    const a = toPx(path[k]);
-    const b = toPx(path[Math.min(path.length - 1, k + 1)]);
+    const a = toPx(leg.path[k]);
+    const b = toPx(leg.path[Math.min(leg.path.length - 1, k + 1)]);
     const dx = b.x - a.x;
     const dy = b.y - a.y;
     return { id: npc.id, x: a.x + dx * f, y: a.y + dy * f, dir: Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : dy < 0 ? 'up' : 'down', moving: true };
   }
-  const end = toPx(path[path.length - 1] ?? [to.x, to.y]);
+  const end = toPx(leg.path[leg.path.length - 1]);
   // Idle: look around now and then.
   const dirs: Dir[] = ['down', 'left', 'down', 'right'];
   return { id: npc.id, x: end.x, y: end.y, dir: dirs[Math.floor(minute / 23) % 4], moving: false };

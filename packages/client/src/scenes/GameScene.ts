@@ -19,6 +19,9 @@ import {
   NODE_NAME,
   timeLeft,
   debrisBlocks,
+  inGreenhouse,
+  NPC_SPEED,
+  MS_PER_GAME_MINUTE,
   GIFTABLE,
   mineFloor,
   MINE_THEME_NAME,
@@ -39,7 +42,7 @@ import { ClientWorld } from '../net/ClientWorld';
 import type { Connection } from '../net/Connection';
 import { WorldView, type ViewInput, type ViewPlayer } from '../render/WorldView';
 import { MineView, type MineViewInput } from '../render/MineView';
-import { SEASON_TRACK } from '../audio/AudioManager';
+import { SEASON_TRACK, type Sfx } from '../audio/AudioManager';
 import { Hud } from '../ui/Hud';
 import { formatGold } from '../ui/kit';
 import { DaySummaryPanel, JournalPanel, LiftPanel, RepairPanel, PackingPanel, PauseMenu, ShopPanel, SleepDialog, type Panel } from '../ui/panels';
@@ -91,6 +94,10 @@ export class GameScene implements Scene {
   private stepT = 0;
   private blinkT = 3;
   private pickups: Pickup[] = [];
+  /** Things leaving the hands: a gift to a villager, produce into a machine, a seed into the soil. */
+  private offers: Array<{ img: HTMLCanvasElement; x0: number; y0: number; x1: number; y1: number; t: number; dur: number; small: boolean }> = [];
+  /** What was in hand when the last item was used (the server's reply may come after the slot empties). */
+  private lastUsed: string | null = null;
   private zone: ZoneId = 0;
   private pausedSent = false;
   private target = { x: 0, y: 0 };
@@ -316,8 +323,14 @@ export class GameScene implements Scene {
 
     // Pickups.
     for (const p of this.pickups) p.t += dt;
+    for (const o of this.offers) o.t += dt / o.dur;
+    this.offers = this.offers.filter((o) => o.t < 1);
     this.pickups = this.pickups.filter((p) => p.t < 1.1);
 
+    // Villagers' walk cycles, paced to their strolling speed (the player's cycle is 10 frames/s at 88 px/s).
+    if (!floor)
+      for (const n of allNpcPoses(world.map, world.minute(!!this.panel?.pauses)))
+        if (n.moving) this.npcAnim.set(n.id, (this.npcAnim.get(n.id) ?? 0) + dt * ((NPC_SPEED * TILE) / (MS_PER_GAME_MINUTE / 1000) / SPEED));
     this.hud.update(dt, world.gold);
     if (floor) this.mine.update(dt, this.mineInput(), vw, vh);
     else this.view.update(dt, this.viewInput(), vw, vh);
@@ -404,7 +417,11 @@ export class GameScene implements Scene {
     const dy = this.target.y * TILE + 8 - (this.py - 4);
     if (Math.abs(dx) > Math.abs(dy)) this.dir = dx < 0 ? 'left' : 'right';
     else this.dir = dy < 0 ? 'up' : 'down';
-    if (def.kind === 'tool') this.swing = { item: stack.id, t: 0 };
+    this.lastUsed = stack.id;
+    if (def.kind === 'tool') {
+      this.swing = { item: stack.id, t: 0 };
+      if (def.tool !== 'can') this.game.audio.play('swing', { volume: 0.5, rate: def.tool === 'pick' ? 0.85 : 1 });
+    }
     this.send({ t: 'useItem', slot: self.sel, tx: this.target.x, ty: this.target.y });
   }
 
@@ -418,20 +435,41 @@ export class GameScene implements Scene {
     this.game.setScene(new TitleScene());
   }
 
+  /** What the ground underfoot sounds like: tilled soil, sand, snow, stone, boards, leaves or grass. */
+  private groundSound(): Sfx {
+    if (this.floor) return mineFloor(this.world.state.seed, this.floor).theme === 0 ? 'step_path' : 'step_stone';
+    const map = this.world.map;
+    const tx = Math.floor(this.px / TILE);
+    const ty = Math.floor(this.py / TILE);
+    const k = ty * map.w + tx;
+    const t = map.terrain[k];
+    const season = seasonOf(this.world.clock.day);
+    if (t === Terrain.Dock || t === Terrain.Bridge) return 'step_wood';
+    if (this.world.soil[k] || (this.world.state.greenhouse && inGreenhouse(map, tx, ty))) return 'step_soil';
+    if (t === Terrain.Cobble || t === Terrain.Rock || t === Terrain.Stairs || t === Terrain.Cliff) return season === 3 && t !== Terrain.Cobble ? 'step_snow' : 'step_stone';
+    if (t === Terrain.Sand) return 'step_sand';
+    if (season === 3) return 'step_snow';
+    if (t === Terrain.Path) return 'step_path';
+    if (t === Terrain.Forest && season === 2) return 'step_leaves';
+    return 'step_grass';
+  }
+
   private footstep() {
+    const audio = this.game.audio;
+    const kind = this.groundSound();
+    audio.play(kind, { volume: kind === 'step_soil' || kind === 'step_sand' ? 0.42 : 0.35 });
     if (this.floor) {
-      this.game.audio.play('step_path', { volume: 0.32, rate: 0.9 });
       if (Math.random() < 0.5) this.view.particles.burst(this.px, this.py - 1, 2, ['#8a7a6a', '#6a5a4a'], 8, 5, 0, 0.35);
       return;
     }
-    const map = this.world.map;
-    const t = map.terrain[Math.floor(this.py / TILE) * map.w + Math.floor(this.px / TILE)];
-    const kind = t === Terrain.Dock || t === Terrain.Bridge ? 'step_wood' : t === Terrain.Path || t === Terrain.Cobble || t === Terrain.Sand || t === Terrain.Rock || t === Terrain.Stairs ? 'step_path' : 'step_grass';
-    this.game.audio.play(kind, { volume: 0.35 });
-    if (t === Terrain.Path || t === Terrain.Sand)
-      this.view.particles.burst(this.px, this.py - 1, 2, t === Terrain.Sand ? ['#f0e0b8', '#dcc690'] : ['#d8b888', '#b8986a'], 10, 6, 0, 0.35);
-    if (isPrecipitating(this.world.weather, this.world.clock.minute) && this.world.weather.kind !== 'snow')
+    const dust: Partial<Record<Sfx, string[]>> = { step_sand: ['#f0e0b8', '#dcc690'], step_path: ['#d8b888', '#b8986a'], step_soil: ['#8a5a3a', '#6e4630'], step_snow: ['#ffffff', '#e2eaf3'], step_leaves: ['#e0923a', '#c85a3a'] };
+    const colors = dust[kind];
+    if (colors) this.view.particles.burst(this.px, this.py - 1, kind === 'step_leaves' ? 3 : 2, colors, 10, 6, 0, 0.35);
+    // Puddles underfoot in the rain.
+    if (isPrecipitating(this.world.weather, this.world.clock.minute) && this.world.weather.kind !== 'snow' && kind !== 'step_wood' && kind !== 'step_stone') {
       this.view.particles.spawn({ kind: 'splash', x: this.px, y: this.py, max: 0.3, color: '#b8d8f0' });
+      if (Math.random() < 0.6) audio.play('step_splash', { volume: 0.3 });
+    }
   }
 
   // ── Events from the server ─────────────────────────────────────────────
@@ -462,24 +500,25 @@ export class GameScene implements Scene {
         const pan = (x - ((this.floor ? this.mine.camX : this.view.camX) + this.game.screen.width / 2)) / 300;
         if (e.kind === 'till' || e.kind === 'clear') {
           ps.burst(x, y, 10, e.kind === 'clear' ? ['#6a9a4a', '#8ab85a', '#8a5a3a'] : ['#8a5a3a', '#a87a52', '#6e4630'], 40, 40, 160, 0.5);
-          audio.play('hoe', { pan });
+          const held = this.world.self.inv[this.world.self.sel];
+          audio.play(e.kind === 'clear' && held && getItem(held.id).tool === 'scythe' ? 'scythe' : 'hoe', { pan });
         } else if (e.kind === 'break') {
           ps.burst(x, y - 2, 12, ['#b0a898', '#8f8a86', '#d0c8bc'], 55, 50, 220, 0.55);
-          audio.play('hoe', { pan, rate: 0.7 });
+          audio.play('pick', { pan, rate: 1.1 });
           audio.play('crate', { pan, volume: 0.5, rate: 1.4, delay: 0.03 });
         } else if (e.kind === 'mine') {
           ps.burst(x, y - 4, 16, ['#b0a898', '#8f8a86', '#d0c8bc', '#6a6670'], 70, 60, 240, 0.6);
-          audio.play('hoe', { pan, rate: 0.6 });
+          audio.play('pick', { pan });
           audio.play('crate', { pan, volume: 0.6, rate: 1.6, delay: 0.04 });
         } else if (e.kind === 'restore') {
           for (let i = 0; i < 40; i++) ps.spawn({ kind: 'sparkle', x: x - 60 + Math.random() * 120, y: y - 50 + Math.random() * 70, vy: -10, max: 1 + Math.random(), color: i % 3 ? '#cfeef4' : '#ffffff' });
           audio.play('chime', { volume: 0.8 });
           audio.play('coin', { rate: 0.8, delay: 0.1 });
         } else if (e.kind === 'ladder') {
-          audio.play('step_wood', { volume: 0.6, rate: 0.8 });
-          audio.play('step_wood', { volume: 0.5, rate: 0.9, delay: 0.18 });
+          audio.play('ladder', { volume: 0.7 });
           if (e.by !== me) ps.burst(x, y - 4, 10, ['#d8c8a8', '#a89878'], 30, 30, 120, 0.5);
         } else if (e.kind === 'load') {
+          if (e.by === me && this.lastUsed) this.offer(this.lastUsed, x, y - 8, 0.35);
           audio.play('crate', { pan, volume: 0.55, rate: 1.1 });
           ps.burst(x, y - 8, 6, ['#fff4d0', '#e8d8b0'], 20, 30, 100, 0.4);
         } else if (e.kind === 'chop') {
@@ -492,6 +531,7 @@ export class GameScene implements Scene {
           ps.burst(x, y, 12, ['#a8e0f8', '#ffffff'], 30, 40, 150, 0.6);
           audio.play('refill', { pan });
         } else if (e.kind === 'plant') {
+          if (e.by === me && this.lastUsed) this.offer(this.lastUsed, x, y - 2, 0.22, true);
           ps.burst(x, y, 5, ['#8a5a3a', '#6fb85a'], 20, 20, 120, 0.4);
           audio.play('plant', { pan });
         } else if (e.kind === 'fert' || e.kind === 'tonic') {
@@ -537,6 +577,10 @@ export class GameScene implements Scene {
         audio.play('chime', { volume: 0.7 });
         break;
       case 'dialogue':
+        if (e.gift && this.lastUsed) {
+          const npc = allNpcPoses(this.world.map, this.world.minute(false)).find((n) => n.id === e.npc);
+          if (npc) this.offer(this.lastUsed, npc.x, npc.y - 18, 0.4);
+        }
         audio.play('pop', { volume: 0.5, rate: 1.2 });
         this.panel = new DialoguePanel(this.world, e.npc, e.text, e.gift);
         if (e.gift === 'loved') for (let i = 0; i < 10; i++) ps.spawn({ kind: 'sparkle', x: this.px - 10 + Math.random() * 20, y: this.py - 30 + Math.random() * 10, vy: -14, max: 0.9, color: '#ff9ab0' });
@@ -594,8 +638,8 @@ export class GameScene implements Scene {
     const raining = isPrecipitating(w, m);
     if (this.floor) {
       // Underground: no sky, only a cold draft through the tunnels.
-      for (const a of ['sea', 'rain', 'birds', 'crickets'] as const) audio.ambience(a, 0);
-      audio.ambience('wind', 0.12);
+      for (const a of ['sea', 'rain', 'birds', 'crickets', 'wind'] as const) audio.ambience(a, 0);
+      audio.ambience('cave', 0.85);
       audio.playMusic('mine');
       return;
     }
@@ -611,6 +655,7 @@ export class GameScene implements Scene {
         n++;
       }
     const season = seasonOf(world.clock.day);
+    audio.ambience('cave', 0);
     audio.ambience('sea', Math.min(1, 0.15 + (sea / n) * 1.8));
     audio.ambience('rain', raining && (w.kind === 'rain' || w.kind === 'storm') ? (w.kind === 'storm' ? 1 : 0.75) : 0);
     audio.ambience('wind', w.kind === 'storm' ? 0.8 : season === 3 || w.wind > 0.4 ? 0.35 : 0.08);
@@ -625,13 +670,10 @@ export class GameScene implements Scene {
     const world = this.world;
     const minute = world.minute(!!this.panel?.pauses);
     const players: ViewPlayer[] = [this.selfView()];
-    for (const n of allNpcPoses(world.map, minute)) {
-      const t = (this.npcAnim.get(n.id) ?? 0) + (n.moving ? 1 / 60 : 0);
-      this.npcAnim.set(n.id, t);
-      players.push({ id: n.id, look: NPC_BY_ID.get(n.id)!.look, x: Math.round(n.x), y: Math.round(n.y), dir: n.dir, moving: n.moving, animT: t, carrying: 0 });
-    }
+    for (const n of allNpcPoses(world.map, minute))
+      players.push({ id: n.id, look: NPC_BY_ID.get(n.id)!.look, x: Math.round(n.x), y: Math.round(n.y), dir: n.dir, moving: n.moving, animT: this.npcAnim.get(n.id) ?? 0, carrying: 0 });
     for (const o of world.others.values())
-      if (!o.floor) players.push({ id: o.id, look: o.look, x: Math.round(o.rx), y: Math.round(o.ry), dir: o.dir, moving: o.moving, animT: o.animT, carrying: o.carrying, name: o.name });
+      if (!o.floor) players.push({ id: o.id, look: o.look, x: Math.round(o.rx), y: Math.round(o.ry), dir: o.dir, moving: o.moving, animT: o.animT, carrying: o.carrying, name: o.name, held: o.held });
     return {
       minute,
       day: world.clock.day,
@@ -664,6 +706,7 @@ export class GameScene implements Scene {
       carrying: self.carrying.length,
       swing: this.swing,
       blink: this.blinkT < 0,
+      held: self.inv[self.sel]?.id ?? null,
     };
   }
 
@@ -672,7 +715,7 @@ export class GameScene implements Scene {
     const floor = this.floor;
     const players: ViewPlayer[] = [this.selfView()];
     for (const o of world.others.values())
-      if (o.floor === floor) players.push({ id: o.id, look: o.look, x: Math.round(o.rx), y: Math.round(o.ry), dir: o.dir, moving: o.moving, animT: o.animT, carrying: o.carrying, name: o.name });
+      if (o.floor === floor) players.push({ id: o.id, look: o.look, x: Math.round(o.rx), y: Math.round(o.ry), dir: o.dir, moving: o.moving, animT: o.animT, carrying: o.carrying, name: o.name, held: o.held });
     return { floor, minute: world.minute(!!this.panel?.pauses), rocks: world.state.mine.rocks[floor] ?? {}, ladder: world.state.mine.ladders[floor], players };
   }
 
@@ -781,8 +824,20 @@ export class GameScene implements Scene {
     this.drawHud(ctx, vw, vh, input.minute);
   }
 
-  /** Items flying from where they were gathered into the player's bag. */
+  /** Sends an item from the hands to (x, y) in world pixels; `small` shrinks it on the way (a seed going in). */
+  private offer(id: string, x: number, y: number, dur: number, small = false) {
+    this.offers.push({ img: Sprites.icon(id), x0: this.px, y0: this.py - 14, x1: x, y1: y, t: 0, dur, small });
+  }
+
+  /** Items flying from where they were gathered into the player's bag, and out of the hands to where they go. */
   private drawPickups(ctx: CanvasRenderingContext2D, cx: number, cy: number) {
+    for (const o of this.offers) {
+      const k = 1 - (1 - o.t) * (1 - o.t);
+      const x = o.x0 + (o.x1 - o.x0) * k;
+      const y = o.y0 + (o.y1 - o.y0) * k - Math.sin(o.t * Math.PI) * 10;
+      const size = o.small ? Math.max(4, Math.round(16 * (1 - o.t * 0.7))) : 16;
+      ctx.drawImage(o.img, Math.round(x - size / 2 - cx), Math.round(y - size / 2 - cy), size, size);
+    }
     for (const p of this.pickups) {
       const t = p.t;
       let x = p.x;
@@ -807,7 +862,7 @@ export class GameScene implements Scene {
     this.hud.hotbar(ui, vw, vh, self, (i) => this.select(i));
     this.hud.stamina(ui, vw, vh, self);
     this.hud.carrying(ui, vw, vh, self.carrying, self.cart);
-    this.hud.drawToasts(ui);
+    this.hud.drawToasts(ui, vw);
     this.hud.drawBanner(ui, vw, vh);
     drawText(ctx, 'Tab 일지 · M 지도 · Esc 메뉴', 6, vh - 12, { font: 'small', color: P.paperLight, outline: P.ink });
     if (this.panel) this.panel.draw(ui, vw, vh);

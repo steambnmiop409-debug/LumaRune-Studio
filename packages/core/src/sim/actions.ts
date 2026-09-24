@@ -7,7 +7,7 @@ import { addItem, canFit, countItem, removeItem, takeFromSlot } from '../invento
 import type { Rng } from '../math/rng';
 import type { GameEvent } from '../protocol/messages';
 import type { PlayerState, WorldState } from '../state/types';
-import { seasonOf, weekdayOf } from '../time/calendar';
+import { SLEEP_FROM, seasonOf, weekdayOf } from '../time/calendar';
 import { TILE, isFreshWater } from '../world/tiles';
 import type { InteractKind, WorldMap } from '../world/types';
 import { canTill, newSoil, placedAt } from './world';
@@ -306,6 +306,7 @@ export function interact(ctx: SimContext, p: PlayerState, x: number, y: number):
       case 'ship':
         return loadShip(ctx, p);
       case 'bed':
+        if (state.clock.minute < SLEEP_FROM) return `아직 잠들 시간이 아니에요. ${Math.floor(SLEEP_FROM / 60)}:00부터 잘 수 있어요.`;
         ctx.emit({ t: 'sleepPrompt' }, p.id);
         return null;
       case 'board':

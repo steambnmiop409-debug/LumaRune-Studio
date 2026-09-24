@@ -144,7 +144,7 @@ export function generateMineFloor(seed: number, floor: number): MineFloor {
         const k = y * w + x;
         if (g[k] !== MineCell.Floor || g[k - w] !== MineCell.Wall || taken.has(k)) continue;
         const r = hash2(x, y, seed + floor * 17);
-        if (r < 0.2 && torches.every(([tx, ty]) => Math.hypot(tx - x, ty - y) > 7)) {
+        if (r < 0.3 && torches.every(([tx, ty]) => Math.hypot(tx - x, ty - y) > 5)) {
           props.push({ kind: 'torch', x, y: y - 1, v: v(x, y, 1) });
           torches.push([x, y]);
         } else if (theme === 0 && r > 0.9 && g[k + 1] === MineCell.Floor && g[k + 1 - w] === MineCell.Wall) {

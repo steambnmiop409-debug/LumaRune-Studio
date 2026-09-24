@@ -96,7 +96,8 @@ export type ServerMessage =
   | { t: 'saves'; slots: Array<SaveSlotInfo | null> }
   | { t: 'needCharacter'; slot: number }
   | { t: 'welcome'; you: string; state: WorldState }
-  | { t: 'tick'; clock: Clock; weather: DayWeather; forecast: DayWeather; players: PlayerPublic[]; shipPresent: boolean; cargo: number; gold: number }
+  /** `sub` is how far into the current minute the clock is (0..1); `rate` is game minutes per real minute-length (0 when paused). */
+  | { t: 'tick'; clock: Clock; sub: number; rate: number; weather: DayWeather; forecast: DayWeather; players: PlayerPublic[]; shipPresent: boolean; cargo: number; gold: number }
   | { t: 'soil'; tiles: Array<[number, SoilState | null]> }
   | { t: 'placed'; placed: PlacedObject[] }
   | { t: 'self'; player: PlayerState; gold: number; lifetime: number; discovered: string[] }

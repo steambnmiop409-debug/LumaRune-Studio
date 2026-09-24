@@ -25,7 +25,7 @@ const WALL_PROPS = new Set(['torch', 'beam', 'crystal', 'icicle']);
 
 /**
  * Renders one floor of the mine: the pre-drawn cave, its props, rocks and ladders, the miners,
- * and a lighting pass where the only light is what you bring — lanterns, torches, crystals, lava.
+ * and a lighting pass: a dim glow in the rock, torches on the walls, crystals, mushrooms and lava.
  */
 export class MineView {
   private lighting = new Lighting();
@@ -60,7 +60,7 @@ export class MineView {
     if (this.emitT < 0.1) return;
     this.emitT = 0;
     const me = input.players[0];
-    // Dust drifting in the lantern light.
+    // Dust drifting in the dim air.
     if (me && Math.random() < 0.5)
       this.particles.spawn({ kind: 'sparkle', x: me.x + (Math.random() - 0.5) * 120, y: me.y - 10 + (Math.random() - 0.5) * 80, vx: (Math.random() - 0.5) * 3, vy: -1 - Math.random() * 2, max: 2.5, color: f.theme === 1 ? '#e0f0ff' : '#f0d8b0' });
     // Drips into pools, embers off the lava.
@@ -178,15 +178,13 @@ export class MineView {
       if (kind !== 'stone' && hash2(k, Math.floor(t * 0.7), 9) < 0.02) this.particles.spawn({ kind: 'sparkle', x: ox + 4 + Math.random() * 10, y: oy + 2 + Math.random() * 8, max: 0.5, color: '#ffffff' });
     }
 
-    // Miners, each with a lantern.
-    input.players.forEach((pl, i) => {
-      const { img, frame } = actorFrame(pl, t);
+    // Miners.
+    for (const pl of input.players) {
+      const f = actorFrame(pl, t);
       const [px, py] = actorPos(pl, cx, cy);
       shadow(pl.x, pl.y, 5, 1.8, 80);
-      drawables.push({ y: pl.y, draw: () => drawActor(ctx, pl, img, frame, px, py) });
-      const flicker = Math.sin(t * 8.3 + i) * 2 + Math.sin(t * 21 + i * 3) * 1.2;
-      lights.push({ x: pl.x - cx, y: pl.y - 14 - cy, r: (i === 0 ? 92 : 72) + flicker, color: '#ffd898', a: 0.95 });
-    });
+      drawables.push({ y: pl.y, draw: () => drawActor(ctx, pl, f, px, py) });
+    }
 
     drawables.sort((a, b) => a.y - b.y);
     for (const d of drawables) d.draw();

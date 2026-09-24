@@ -15,7 +15,7 @@ import {
 } from '@lumina/core';
 import { Sprites } from '../art/Sprites';
 import { P, mix } from '../art/palette';
-import { drawText, measure } from '../engine/text';
+import { drawText, measure, wrap } from '../engine/text';
 import { formatGold, type UI } from './kit';
 
 const SKY: Array<[number, string, string]> = [
@@ -59,6 +59,9 @@ export interface Toast {
   icon?: HTMLCanvasElement;
 }
 
+/** Seconds a letter stays up: longer messages get more reading time. */
+const toastLife = (text: string) => Math.min(7, 3.4 + text.length * 0.05);
+
 /**
  * The always-visible HUD: Sky Dial (time, weather, temperature, ship countdown),
  * money pouch, rope hotbar, stamina leaf, carried crates, letters (toasts) and zone banner.
@@ -81,7 +84,7 @@ export class Hud {
 
   update(dt: number, gold: number): void {
     for (const t of this.toasts) t.t += dt;
-    this.toasts = this.toasts.filter((t) => t.t < 4.2);
+    this.toasts = this.toasts.filter((t) => t.t < toastLife(t.text));
     if (this.nameTag) {
       this.nameTag.t += dt;
       if (this.nameTag.t > 1.4) this.nameTag = null;
@@ -307,21 +310,26 @@ export class Hud {
     }
   }
 
-  drawToasts(ui: UI): void {
+  /** Letters down the left edge. Long messages wrap onto more lines instead of running past the paper. */
+  drawToasts(ui: UI, vw: number): void {
     const ctx = ui.ctx;
+    const maxText = Math.max(140, Math.min(300, Math.round(vw * 0.42) - 30));
     let y = 8;
     for (const t of this.toasts) {
-      const w = Math.min(260, measure(t.text) + 30);
-      const slide = t.t < 0.25 ? (1 - t.t / 0.25) * -w : t.t > 3.8 ? ((t.t - 3.8) / 0.4) * -w : 0;
+      const lines = wrap(t.text, maxText, 'body');
+      const w = Math.max(...lines.map((l) => measure(l))) + 30;
+      const h = 8 + lines.length * 12;
+      const life = toastLife(t.text);
+      const slide = t.t < 0.25 ? (1 - t.t / 0.25) * -w : t.t > life - 0.4 ? ((t.t - (life - 0.4)) / 0.4) * -w : 0;
       const x = Math.round(8 + slide);
-      ui.panel({ x, y, w, h: 20 });
+      ui.panel({ x, y, w, h });
       // Wax seal.
       ctx.fillStyle = t.tone === 'good' ? '#5a9a6a' : t.tone === 'warn' ? P.coralDark : P.tealDark;
       ctx.fillRect(x + 6, y + 6, 8, 8);
       ctx.fillRect(x + 5, y + 7, 10, 6);
       if (t.icon) ctx.drawImage(t.icon, x + 2, y + 2);
-      drawText(ctx, t.text, x + 20, y + 4, { font: 'body' });
-      y += 23;
+      lines.forEach((l, i) => drawText(ctx, l, x + 20, y + 4 + i * 12, { font: 'body' }));
+      y += h + 3;
     }
   }
 

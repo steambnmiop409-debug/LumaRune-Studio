@@ -13,7 +13,7 @@ export const MINE_PAL: Record<MineTheme, { floor: string[]; rock: string[]; top:
     pool: ['#1e2c40', '#2a4058', '#3e5e7c', '#7aa0c0'],
     glow: '#ffc070',
     tint: '#a08466',
-    ambient: '#3a3244',
+    ambient: '#5a5068',
   },
   1: {
     floor: ['#7a8aa2', '#6a7a94', '#5a6a84', '#4c5a74', '#3e4a62'],
@@ -24,7 +24,7 @@ export const MINE_PAL: Record<MineTheme, { floor: string[]; rock: string[]; top:
     pool: ['#18304a', '#224468', '#36688e', '#9ad0f0'],
     glow: '#80e0ff',
     tint: '#9ab4d4',
-    ambient: '#2a3450',
+    ambient: '#46547a',
   },
   2: {
     floor: ['#6a4648', '#5c3a3e', '#4e3034', '#40262c', '#321c22'],
@@ -35,7 +35,7 @@ export const MINE_PAL: Record<MineTheme, { floor: string[]; rock: string[]; top:
     pool: ['#7a1a0e', '#c8401a', '#f07a2a', '#ffd070'],
     glow: '#ff8a40',
     tint: '#8a5a50',
-    ambient: '#38222a',
+    ambient: '#583a42',
   },
 };
 
