@@ -12,9 +12,40 @@ const CX = 12;
 type Pal = { l: string; ll: string; d: string; dd: string };
 const pal = (c: string): Pal => ({ l: light(c, 1), ll: light(c, 2), d: shade(c, 1), dd: shade(c, 2) });
 
+/** Per-crop growth habit so no two crops share a silhouette. Set before drawing each crop. */
+interface Habit {
+  len: number;
+  wid: number;
+  lean: number;
+  count: number;
+  vein: boolean;
+  speck: string | null;
+  mono: boolean;
+}
+let H: Habit = { len: 1, wid: 1, lean: 0, count: 0, vein: false, speck: null, mono: false };
+
+function habit(def: CropDef): Habit {
+  let h = 0;
+  for (const ch of def.id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  const r = (k: number) => hash2(h & 0xffff, k, h >>> 16);
+  const mono = def.category === 'grain' || def.category === 'bulb' || def.form === 'paddy' || def.form === 'stalk' || ['lemongrass', 'garlicchives', 'chives', 'asparagus', 'saffron', 'tulip', 'daffodil', 'lily', 'freesia', 'lilyvalley', 'lotus', 'pineapple', 'ginger', 'turmeric'].includes(def.id);
+  return {
+    len: 0.8 + r(1) * 0.45,
+    wid: 0.75 + r(2) * 0.55,
+    lean: (r(3) - 0.5) * 0.5,
+    count: Math.floor(r(4) * 3) - 1,
+    vein: r(5) < 0.35,
+    speck: r(6) < 0.25 ? def.produceColor : null,
+    mono,
+  };
+}
+
 /** A tapered leaf blade from (bx, by) at `angle` (radians, 0 = right, -π/2 = up). */
 function leaf(p: Pix, bx: number, by: number, angle: number, len: number, wid: number, c: string) {
   const P = pal(c);
+  angle += H.lean * (angle < -Math.PI / 2 ? -1 : 1) * 0.5;
+  len *= H.len;
+  wid *= H.wid;
   const dx = Math.cos(angle);
   const dy = Math.sin(angle);
   for (let t = 0; t <= len; t += 0.5) {
@@ -27,7 +58,8 @@ function leaf(p: Pix, bx: number, by: number, angle: number, len: number, wid: n
       // Upper side lighter, lower side darker, midrib.
       const side = s * -Math.sign(dx || 1);
       let col = side > hw * 0.3 ? P.l : side < -hw * 0.4 ? P.d : c;
-      if (Math.abs(s) < 0.5 && t > 1) col = P.ll;
+      if (Math.abs(s) < 0.5 && t > 1) col = H.vein ? P.d : P.ll;
+      if (H.speck && hash2(Math.round(x), Math.round(y), 17) < 0.06) col = H.speck;
       p.set(x, y, col);
     }
   }
@@ -66,10 +98,17 @@ function mound(p: Pix) {
   p.set(CX + 1, GY - 1, '#c8a878');
 }
 
-function sprout(p: Pix, c: string) {
-  stem(p, CX, GY, CX, GY - 4, c);
-  leaf(p, CX, GY - 4, -2.4, 4, 1.5, light(c, 1));
-  leaf(p, CX, GY - 4, -0.7, 4, 1.5, c);
+/** Seedling: monocots push up a single grass-like blade, dicots open two round seed leaves. */
+function sprout(p: Pix, c: string, g = 0.35) {
+  const h = 2 + Math.round(g * 8);
+  if (H.mono) {
+    p.line(CX, GY, CX + H.lean * 3, GY - h - 2, light(c, 1));
+    if (g > 0.25) p.line(CX + 1, GY, CX + 2 + H.lean * 4, GY - h, c);
+    return;
+  }
+  stem(p, CX, GY, CX, GY - h, c);
+  leaf(p, CX, GY - h, -2.4, 2 + g * 5, 1.2 + g, light(c, 1));
+  leaf(p, CX, GY - h, -0.7, 2 + g * 5, 1.2 + g, c);
 }
 
 function trellis(p: Pix, height: number) {
@@ -127,15 +166,19 @@ function produceOn(p: Pix, shape: ProduceShape, c: string, spots: Array<[number,
   }
 }
 
-function drawForm(p: Pix, def: CropDef, stage: number, seed: number) {
+function drawForm(p: Pix, def: CropDef, step: number, seed: number) {
   const L = def.leafColor;
-  const F = def.produceColor;
-  const ready = stage >= 4;
-  const g = stage / 4;
+  const ready = step >= STEPS;
+  const g = step / STEPS;
+  // Fruit development: blossoms, then small green fruit that colours as it ripens.
+  const fruiting = g >= 0.7;
+  const ripe = ready ? 1 : Math.max(0, (g - 0.7) / 0.3);
+  const F = ready ? def.produceColor : mix(light(def.leafColor, 1), def.produceColor, ripe * 0.55);
+  const stage = Math.max(1, g * 4 + H.count * 0.25);
   switch (def.form) {
     case 'rosette': {
       const r = 2 + g * 5;
-      const n = 5 + stage;
+      const n = Math.round(5 + stage);
       for (let i = 0; i < n; i++) {
         const a = -Math.PI + (i / (n - 1)) * Math.PI + (hash2(i, seed, 1) - 0.5) * 0.3;
         leaf(p, CX, GY - 1, a, r + 1, 1.2 + g * 1.6, i % 2 ? L : light(L, 1));
@@ -151,7 +194,7 @@ function drawForm(p: Pix, def: CropDef, stage: number, seed: number) {
     case 'leafy':
     case 'herb': {
       const fine = def.form === 'herb';
-      const n = 3 + stage * (fine ? 2 : 1);
+      const n = Math.round(3 + stage * (fine ? 2 : 1));
       const len = 3 + g * (fine ? 8 : 11);
       for (let i = 0; i < n; i++) {
         const a = -Math.PI / 2 + (i / Math.max(1, n - 1) - 0.5) * 2.2 + (hash2(i, seed, 2) - 0.5) * 0.3;
@@ -172,7 +215,7 @@ function drawForm(p: Pix, def: CropDef, stage: number, seed: number) {
       break;
     }
     case 'root': {
-      const n = 3 + stage;
+      const n = Math.round(3 + stage);
       const len = 4 + g * 9;
       for (let i = 0; i < n; i++) {
         const a = -Math.PI / 2 + (i / Math.max(1, n - 1) - 0.5) * 1.8;
@@ -186,7 +229,7 @@ function drawForm(p: Pix, def: CropDef, stage: number, seed: number) {
       break;
     }
     case 'bulb': {
-      const n = 2 + stage;
+      const n = Math.round(2 + stage);
       const len = 5 + g * 12;
       for (let i = 0; i < n; i++) {
         const x = CX - n / 2 + i + 0.5;
@@ -200,8 +243,8 @@ function drawForm(p: Pix, def: CropDef, stage: number, seed: number) {
       break;
     }
     case 'bush': {
-      if (stage === 1) {
-        sprout(p, L);
+      if (stage < 1.6) {
+        sprout(p, L, g * 2);
         break;
       }
       const rx = 3 + g * 6;
@@ -210,7 +253,7 @@ function drawForm(p: Pix, def: CropDef, stage: number, seed: number) {
       stem(p, CX, GY, CX, cy, '#6e5a3a');
       blob(p, CX, cy, rx, ry, L, seed, 3);
       if (stage >= 3 && def.category === 'fruit') for (let i = 0; i < 4; i++) p.set(CX - 4 + Math.floor(hash2(i, seed, 8) * 8), cy - 2 + Math.floor(hash2(i, seed, 9) * 5), '#fff4f4');
-      if (ready) {
+      if (fruiting) {
         const spots: Array<[number, number]> = [];
         const n = def.shape === 'berry' ? 6 : 4;
         for (let i = 0; i < n; i++) spots.push([Math.round(CX - rx + 2 + hash2(i, seed, 10) * (rx * 2 - 4)), Math.round(cy - ry + 3 + hash2(i, seed, 11) * (ry * 2 - 5))]);
@@ -219,9 +262,9 @@ function drawForm(p: Pix, def: CropDef, stage: number, seed: number) {
       break;
     }
     case 'vine': {
-      if (stage === 1) {
+      if (stage < 1.6) {
         trellis(p, 10);
-        sprout(p, L);
+        sprout(p, L, g * 2);
         break;
       }
       const h = 10 + stage * 5;
@@ -233,7 +276,7 @@ function drawForm(p: Pix, def: CropDef, stage: number, seed: number) {
         leaf(p, CX, y, side < 0 ? Math.PI + 0.4 : -0.4, 3 + hash2(y, seed, 13) * 2, 1.4, y % 4 ? L : light(L, 1));
         p.set(x, y, shade(L, 1));
       }
-      if (ready) {
+      if (fruiting) {
         const spots: Array<[number, number]> = [];
         for (let i = 0; i < 4; i++) spots.push([Math.round(CX - 5 + hash2(i, seed, 14) * 10), Math.round(top + 4 + hash2(i, seed, 15) * (GY - top - 8))]);
         produceOn(p, def.shape, F, spots, def.shape === 'round' || def.shape === 'gourd');
@@ -241,8 +284,8 @@ function drawForm(p: Pix, def: CropDef, stage: number, seed: number) {
       break;
     }
     case 'sprawl': {
-      if (stage === 1) {
-        sprout(p, L);
+      if (stage < 1.6) {
+        sprout(p, L, g * 2);
         break;
       }
       const r = 3 + g * 7;
@@ -251,7 +294,7 @@ function drawForm(p: Pix, def: CropDef, stage: number, seed: number) {
         leaf(p, CX, GY - 2, a, r, 2 + g, i % 2 ? L : light(L, 1));
       }
       p.line(CX - r, GY - 1, CX + r, GY, shade(L, 1));
-      if (ready) {
+      if (fruiting) {
         const big = def.shape === 'gourd';
         p.ellipse(CX + 2, GY - (big ? 4 : 3), big ? 5.5 : 4, big ? 4.2 : 3.3, (nx, ny) => {
           let c = nx < -0.3 && ny < -0.2 ? light(F, 1) : nx > 0.35 || ny > 0.5 ? shade(F, 1) : F;
@@ -283,7 +326,7 @@ function drawForm(p: Pix, def: CropDef, stage: number, seed: number) {
         }
         break;
       }
-      const n = 3 + stage * 2;
+      const n = Math.round(3 + stage * 2);
       const len = 4 + g * 14;
       const golden = ready ? mix(L, F, 0.55) : L;
       for (let i = 0; i < n; i++) {
@@ -303,8 +346,8 @@ function drawForm(p: Pix, def: CropDef, stage: number, seed: number) {
     }
     case 'stalk':
     case 'tall': {
-      if (stage === 1) {
-        sprout(p, L);
+      if (stage < 1.6) {
+        sprout(p, L, g * 2);
         break;
       }
       const h = 6 + g * (def.form === 'stalk' ? 22 : 18);
@@ -329,14 +372,14 @@ function drawForm(p: Pix, def: CropDef, stage: number, seed: number) {
           for (let i = 0; i < 4; i++) spots.push([CX + (i % 2 ? 2 : -2), top + 3 + i * Math.max(2, (h - 6) / 5)]);
           produceOn(p, def.shape, F, spots);
         }
-      } else if (stage === 3 && def.shape === 'bloom') {
+      } else if (stage >= 3 && def.shape === 'bloom') {
         p.ellipse(CX, top, 2, 2, light(L, 1));
       }
       break;
     }
     case 'flower': {
-      if (stage === 1) {
-        sprout(p, L);
+      if (stage < 1.6) {
+        sprout(p, L, g * 2);
         break;
       }
       const h = 4 + g * 10;
@@ -370,7 +413,7 @@ function drawForm(p: Pix, def: CropDef, stage: number, seed: number) {
       blob(p, CX, GY - 20, 9, 8, L, seed, 4);
       blob(p, CX - 4, GY - 16, 5, 4, L, seed + 1, 4);
       blob(p, CX + 5, GY - 16, 5, 4, L, seed + 2, 4);
-      if (ready) {
+      if (fruiting) {
         const spots: Array<[number, number]> = [];
         for (let i = 0; i < 6; i++) spots.push([Math.round(CX - 7 + hash2(i, seed, 20) * 14), Math.round(GY - 26 + hash2(i, seed, 21) * 12)]);
         produceOn(p, def.shape, F, spots, def.shape === 'round');
@@ -380,14 +423,38 @@ function drawForm(p: Pix, def: CropDef, stage: number, seed: number) {
   }
 }
 
-/** Plant sprite for a crop at growth stage 0..4. */
-export function cropSprite(def: CropDef, stage: number): HTMLCanvasElement {
+function blossoms(p: Pix, def: CropDef, g: number, seed: number) {
+  const petal = def.category === 'fruit' && def.form === 'tree' ? '#fbe4ec' : def.id.includes('pumpkin') || def.form === 'sprawl' || def.id === 'cucumber' ? '#f8d850' : '#fff8f0';
+  const n = 2 + Math.floor((g - 0.5) * 12);
+  const tall = def.form === 'tree' ? 26 : def.form === 'vine' ? 22 : 10;
+  for (let i = 0; i < n; i++) {
+    const x = CX - 6 + Math.floor(hash2(i, seed, 31) * 12);
+    const y = GY - 3 - Math.floor(hash2(i, seed, 32) * tall);
+    if (!p.opaque(x, y)) continue;
+    p.set(x, y, petal);
+    p.set(x + 1, y, shade(petal, 1));
+    p.set(x, y - 1, petal);
+  }
+}
+
+/** Number of visual growth steps after the seed mound (step STEPS = ripe). */
+export const STEPS = 10;
+
+/** Plant sprite for a crop at growth step 0..STEPS (0 = freshly sown mound). */
+export function cropSprite(def: CropDef, step: number): HTMLCanvasElement {
   const p = new Pix(CROP_W, CROP_H);
-  const seed = def.id.length * 31 + def.id.charCodeAt(0);
-  if (stage === 0) mound(p);
-  else if (stage === 1 && def.form !== 'vine' && def.form !== 'bush' && def.form !== 'stalk' && def.form !== 'tall' && def.form !== 'sprawl' && def.form !== 'flower' && def.form !== 'tree' && def.form !== 'paddy') {
-    drawForm(p, def, 1, seed);
-  } else drawForm(p, def, stage, seed);
+  let seed = 0;
+  for (const ch of def.id) seed = (seed * 31 + ch.charCodeAt(0)) & 0xffff;
+  H = habit(def);
+  if (step === 0) mound(p);
+  else if (step <= 2) {
+    mound(p);
+    sprout(p, def.leafColor, step / 4);
+  } else {
+    drawForm(p, def, step, seed);
+    const g = step / STEPS;
+    if (g >= 0.5 && g < 0.7 && (def.form === 'bush' || def.form === 'vine' || def.form === 'sprawl' || def.form === 'tree')) blossoms(p, def, g, seed);
+  }
   p.outline(undefined, 'all');
   return p.toCanvas();
 }

@@ -448,19 +448,16 @@ export class GameScene implements Scene {
     const tx = Math.floor(this.px / TILE);
     const ty = Math.floor(this.py / TILE);
     let sea = 0;
-    let fresh = 0;
     let n = 0;
     for (let y = ty - 14; y <= ty + 14; y += 2)
       for (let x = tx - 18; x <= tx + 18; x += 2) {
         if (x < 0 || y < 0 || x >= map.w || y >= map.h) continue;
         const t = map.terrain[y * map.w + x];
         if (t === Terrain.Sea || t === Terrain.Deep) sea++;
-        if (t === Terrain.River) fresh++;
         n++;
       }
     const season = seasonOf(world.clock.day);
     audio.ambience('sea', Math.min(1, 0.15 + (sea / n) * 1.8));
-    audio.ambience('stream', Math.min(0.8, fresh / 8));
     audio.ambience('rain', raining && (w.kind === 'rain' || w.kind === 'storm') ? (w.kind === 'storm' ? 1 : 0.75) : 0);
     audio.ambience('wind', w.kind === 'storm' ? 0.8 : season === 3 || w.wind > 0.4 ? 0.35 : 0.08);
     audio.ambience('birds', !raining && m >= 330 && m < 1080 && season !== 3 ? 0.55 : 0);

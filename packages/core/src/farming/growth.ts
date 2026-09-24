@@ -29,6 +29,14 @@ export function cropStage(crop: CropState): number {
   return Math.min(3, Math.floor((crop.growth / def.growDays) * 4));
 }
 
+/** Fine-grained visual step 0..10 (10 = harvestable) so plants visibly grow a little each day. */
+export function cropStep(crop: CropState): number {
+  const def = getCrop(crop.id);
+  if (crop.growth >= def.growDays) return 10;
+  if (crop.growth <= 0) return 0;
+  return Math.min(9, 1 + Math.floor((crop.growth / def.growDays) * 9));
+}
+
 export function temperatureFactor(def: CropDef, temp: number): number {
   const [lo, hi] = def.temp;
   if (temp >= lo && temp <= hi) return 1;

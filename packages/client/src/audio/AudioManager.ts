@@ -26,7 +26,7 @@ export type Sfx =
   | 'chime'
   | 'sparkle';
 
-export type Ambience = 'sea' | 'rain' | 'wind' | 'birds' | 'crickets' | 'stream';
+export type Ambience = 'sea' | 'rain' | 'wind' | 'birds' | 'crickets';
 export type Track = 'title' | 'day' | 'evening' | 'night' | 'rain';
 
 const SFX_VARIANTS: Partial<Record<Sfx, number>> = { step_grass: 4, step_path: 4, step_wood: 3, hoe: 3, harvest: 2, pop: 3 };

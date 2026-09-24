@@ -361,13 +361,6 @@ export const AMB_RECIPES: AmbRecipe[] = [
     },
   },
   {
-    name: 'stream',
-    level: -8,
-    async make() {
-      return highpass(await held(SFX.stream, 25), 200);
-    },
-  },
-  {
     name: 'birds',
     level: -9,
     // Morning birdsong: the recorded birds loop plus scattered tweets at different pitches.

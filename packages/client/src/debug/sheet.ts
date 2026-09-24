@@ -58,16 +58,10 @@ export async function sheet(): Promise<void> {
     for (let m = 0; m < 16; m++) ctx.drawImage(Sprites.soil(m, m % 2 === 0), x + 140 + (m % 8) * 16, y + Math.floor(m / 8) * 16);
     ctx.drawImage(Sprites.sails(1), 560, 210);
   } else if (page === '2') {
-    // Crops: a sample of every form, stages 0..4
-    const forms = new Map<string, string>();
-    for (const c of CROPS) if (!forms.has(c.form + c.shape)) forms.set(c.form + c.shape, c.id);
-    let i = 0;
-    for (const id of forms.values()) {
-      const col = i % 4;
-      const row = Math.floor(i / 4);
-      for (let s = 0; s <= 4; s++) ctx.drawImage(Sprites.crop(id, s), 4 + col * 158 + s * 26, 2 + row * 38);
-      i++;
-    }
+    const ids = ['radish', 'carrot', 'lettuce', 'cabbage', 'tomato', 'cucumber', 'strawberry', 'pumpkin', 'watermelon', 'corn', 'wheat', 'rice', 'sunflower', 'tulip', 'basil', 'onion', 'pea', 'chili', 'apple', 'grape'];
+    ids.forEach((id, i) => {
+      for (let s = 0; s <= 10; s++) ctx.drawImage(Sprites.crop(id, s), 4 + (i % 2) * 318 + s * 28, 2 + Math.floor(i / 2) * 36);
+    });
   } else if (page === '3') {
     CROPS.forEach((c, i) => {
       ctx.drawImage(Sprites.icon(`crop.${c.id}`), 4 + (i % 36) * 17, 4 + Math.floor(i / 36) * 17);

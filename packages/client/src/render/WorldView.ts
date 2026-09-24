@@ -1,7 +1,7 @@
 import {
   TILE,
   Terrain,
-  cropStage,
+  cropStep,
   getCrop,
   hash2,
   isWater,
@@ -70,6 +70,8 @@ export class WorldView {
   private fences = new Set<number>();
   private ship: { mode: 'leave' | 'arrive'; t: number } | null = null;
   private smokeT = 0;
+  /** Last drawn growth step per soil tile, for the grow-in cross-fade. */
+  private cropSteps = new Map<number, { step: number; prev: number; t: number }>();
   private ambientT = 0;
 
   constructor(readonly map: WorldMap) {
@@ -344,10 +346,34 @@ export class WorldView {
       const crop = input.soil[k].crop;
       if (!crop) continue;
       const def = getCrop(crop.id);
-      const img = crop.dead ? Sprites.deadCrop(def.form === 'vine' || def.form === 'stalk' || def.form === 'tall') : Sprites.crop(crop.id, cropStage(crop));
+      const step = cropStep(crop);
+      let track = this.cropSteps.get(k);
+      if (!track || track.step !== step) {
+        track = { step, prev: track && track.step < step ? track.step : step, t: 0 };
+        this.cropSteps.set(k, track);
+      }
+      track.t = Math.min(1, track.t + 1 / 60 / 1.2);
+      const img = crop.dead ? Sprites.deadCrop(def.form === 'vine' || def.form === 'stalk' || def.form === 'tall') : Sprites.crop(crop.id, step);
+      const prevImg = !crop.dead && track.prev !== step && track.t < 1 ? Sprites.crop(crop.id, track.prev) : null;
       const sx = x * TILE + 8 - CROP_W / 2 - cx;
       const sy = y * TILE + 13 - (CROP_H - 3) - cy;
-      drawables.push({ y: y * TILE + 12, draw: () => ctx.drawImage(img, sx, sy) });
+      // Gentle sway for tall plants in the wind.
+      const sway = step >= 5 && (def.form === 'stalk' || def.form === 'grain' || def.form === 'tall') ? Math.round(Math.sin(this.time * 1.8 + x * 0.9) * input.weather.wind * 1.2) : 0;
+      drawables.push({
+        y: y * TILE + 12,
+        draw: () => {
+          if (prevImg) {
+            ctx.globalAlpha = 1 - track!.t;
+            ctx.drawImage(prevImg, sx, sy);
+            ctx.globalAlpha = track!.t;
+          }
+          if (sway) {
+            ctx.drawImage(img, 0, 22, CROP_W, CROP_H - 22, sx, sy + 22, CROP_W, CROP_H - 22);
+            ctx.drawImage(img, 0, 0, CROP_W, 22, sx + sway, sy, CROP_W, 22);
+          } else ctx.drawImage(img, sx, sy);
+          ctx.globalAlpha = 1;
+        },
+      });
     }
 
     // Placed objects.
