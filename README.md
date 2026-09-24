@@ -1,15 +1,17 @@
 # 루미나 아일 (Lumina Isle)
 
 > 등대 불빛 아래, 작은 섬에서 작물을 기르고 상자에 담아 배로 실어 보내는 낭만 픽셀 농장 게임
-> LumaRune Studio · 스팀 출시 목표 · 1~4인 협동(예정)
+> LumaRune Studio · 스팀 출시 목표 · 싱글플레이 · Windows / macOS / Linux 데스크톱 앱
 
 ![타이틀](docs/screenshots/01-title.png)
 
-| 농장 | 씨앗 상점 | 항구 |
+| 농장 (잡초·돌·나뭇가지를 치우며 시작) | 마을 광장 | 은빛 폭포 |
 | --- | --- | --- |
-| ![](docs/screenshots/03-farm.png) | ![](docs/screenshots/04-seed-shop.png) | ![](docs/screenshots/05-harbor.png) |
-| **밤의 광장** | **등대 곶** | **캐릭터 만들기** |
-| ![](docs/screenshots/06-plaza-night.png) | ![](docs/screenshots/07-lighthouse.png) | ![](docs/screenshots/02-creator.png) |
+| ![](docs/screenshots/03-farm.png) | ![](docs/screenshots/06-plaza.png) | ![](docs/screenshots/08-waterfall.png) |
+| **밤의 숲속 야영지** | **밤의 항구** | **주민과의 대화** |
+| ![](docs/screenshots/09-camp-night.png) | ![](docs/screenshots/05-harbor.png) | ![](docs/screenshots/10-dialogue.png) |
+| **씨앗 상점** | **섬 지도** | **캐릭터 만들기** |
+| ![](docs/screenshots/04-seed-shop.png) | ![](docs/screenshots/11-map.png) | ![](docs/screenshots/02-creator.png) |
 
 ## 핵심 사이클
 
@@ -23,9 +25,18 @@
   서리 내성, 덩굴 지지대, 다년생, 습지 작물. 등급이 높을수록 비싸고 까다로움.
 - **기온 기반 계절**: 매일의 기온·일교차·날씨(맑음·흐림·비·폭풍·안개·눈, 장마)로 생장이 결정되고 서리가 내리면 약한 작물이 시듦.
 - **시세**: 한꺼번에 많이 팔면 값이 내려가고 매일 회복, 제철이 아니면 비쌈.
-- **큰 섬 (240×180 타일)**: 농장, 마을 광장(씨앗방·공방), 항구, 등대 곶, 강과 다리, 숲, 별빛 언덕, 노을 해변.
+- **큰 섬 (240×180 타일)**: 농장, 마을 광장(씨앗방·공방·게시판), 항구, 등대 곶, 강과 다리, 속삭이는 숲,
+  **절벽 고원 두 곳**(별빛 언덕·북쪽 숲 능선, 돌계단으로 오르기), **은빛 폭포**, 숲속 야영지, 잊힌 유적,
+  언덕 위 정자, 햇살 과수원, 조수 웅덩이, 노을 해변(파라솔·모래성).
+- **손그림 같은 도트 그래픽**: 잎 뭉치마다 입체 음영을 준 참나무·자작나무·황금잎 나무·벚나무·소나무,
+  얼룩진 잔디·풀포기·클로버, 가장자리가 해진 흙길, 바위 절벽, 부채꼴 포장, 기와 한 장씩 그린 지붕.
+  모든 나무·바위·소품은 개체마다 모양이 다름. 나무·건물 뒤에 서면 반투명해짐.
+- **살아 있는 섬**: 주민 5명이 시간표대로 생활 (대화·선물·하트 10단계), 매일 바뀌는 게시판 의뢰,
+  계절별 채집물(버섯·조개·바다유리·산딸기·과수원 낙과 등), 나비·갈매기·참새(다가가면 날아감)·잠자리·뛰어오르는 물고기.
+- **농장 개간**: 새 농장은 잡초·돌·나뭇가지로 덮여 있음 — 괭이·낫으로 치우고, 잡초 속에서 씨앗을 줍기도 함.
 - **낭만적인 연출**: 시간대 색보정, 가로등·창문 불빛, 회전하는 등대 빛줄기, 구름 그림자, 벚꽃잎·낙엽·반딧불이, 비·폭풍·안개·눈.
-- **항해 일지 UI**: 하늘 다이얼(시간·날씨·기온·출항 카운트다운), 로프 핫바, 씨앗 봉투 카드, 작물 도감 200종, 출하 기록, 섬 지도.
+- **항해 일지 UI**: 하늘 다이얼(시간·날씨·기온·출항 카운트다운), 로프 핫바, 씨앗 봉투 카드, 작물 도감 200종, 출하 기록,
+  섬 지도(명소·주민 위치·마우스 설명). 8비트 비트맵 폰트(Galmuri)로 글자가 깨지지 않음.
 - **캐릭터 커스터마이즈**: 16×32 레이어 도트(헤어 6·옷 4·모자 4·피부 8·머리색 10·눈 6·옷/하의 색), 6프레임 걷기.
 - **사운드**: 실제 녹음 샘플로 하나씩 제작한 효과음 33개·환경음 6개·직접 작곡한 음악 5곡.
 
@@ -33,15 +44,16 @@
 
 ```bash
 npm install
-npm run dev          # http://localhost:5173 — 싱글플레이 (서버가 Web Worker 안에서 실행)
+npm run app          # 데스크톱 앱으로 실행 (Electron)
+npm run app:dist     # 설치 파일 만들기 → packages/desktop/release (Windows·macOS·Linux)
+npm run dev          # 브라우저 개발 모드 http://localhost:5173
 ```
 
-- 이동 `WASD` · 도구 사용 `좌클릭/Space` · 상호작용·수확 `우클릭/E` · 핫바 `1~0`/휠 · 일지 `Tab` · 지도 `M` · 메뉴 `Esc`
+- 이동 `WASD` · 달리기 `Shift` · 도구 사용 `좌클릭/Space`(누르고 있으면 연속) · 상호작용·대화·수확 `우클릭/E`
+- 선물: 작물·채집물을 들고 주민에게 사용 · 핫바 `1~0`/휠 · 일지 `Tab` · 지도 `M` · 메뉴 `Esc` · 전체화면 `F11`/`Alt+Enter`
 - 개발 모드 전용 키: `F1` 날씨 변경, `F2` 1시간 경과, `F3` 작물 다 자라기, `F4` 골드 +5000
 
 ```bash
-npm run server       # 협동용 전용 서버 (ws://localhost:7777, saves/ 에 저장)
-# 클라이언트에서  http://localhost:5173/?server=ws://localhost:7777
 npm run check        # 타입체크 + 단위 테스트
 npm run build        # 배포용 빌드 → packages/client/dist
 npm run audio        # 사운드 에셋 다시 제작 → packages/client/public/audio
@@ -53,6 +65,7 @@ npm run audio        # 사운드 에셋 다시 제작 → packages/client/public
 packages/core     @lumina/core    순수 규칙·데이터 (작물 200종, 섬 생성, 날씨, 생장, 경제, 프로토콜)
 packages/server   @lumina/server  권한 있는 시뮬레이션 (Web Worker / Node WebSocket, 세이브)
 packages/client   @lumina/client  픽셀 렌더러, UI, 입력, 오디오 재생, 씬
+packages/desktop  @lumina/desktop 데스크톱 앱 (Electron, app:// 로 빌드 결과 제공)
 tools/audio                       사운드 제작 도구 (녹음 샘플 → 편집 → OGG)
 docs/design                       설계도
 ```
