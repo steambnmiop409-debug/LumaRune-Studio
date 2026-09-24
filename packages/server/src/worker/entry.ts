@@ -9,7 +9,7 @@ import { IdbStore } from '../persistence/IdbStore';
 
 declare const self: DedicatedWorkerGlobalScope;
 
-const debug = new URL(self.location.href).searchParams.get('debug') === '1';
+const debug = (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV === true;
 const server = new GameServer({ store: new IdbStore(), debug, maxPlayers: 1 });
 server.connect({ id: 'local', send: (m) => self.postMessage(m) });
 

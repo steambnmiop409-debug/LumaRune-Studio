@@ -1,6 +1,7 @@
 import { fbm, valueNoise } from '../math/noise';
 import { Rng, hash2 } from '../math/rng';
 import { astar } from './path';
+import { chaikin, simplify, strokeBounds, strokeDistance, type Stroke } from './polyline';
 import { Terrain, Zone, isWater } from './tiles';
 import type { Building, BuildingKind, Interactable, ObjectKind, Rect, WorldMap, WorldObject } from './types';
 
@@ -144,25 +145,33 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
   for (let y = 0; y < H; y++)
     for (let x = 0; x < W; x++) if (T(x, y) === Terrain.Sand && Math.hypot(x - beachC.x, y - beachC.y) < 40) zone[idx(x, y)] = Zone.Beach;
 
-  // ── 3. River: from a forest spring down to the harbour bay ─────────────
+  // ── 3. River: a smooth stroke from a forest spring down to the sea ─────
+  const rivers: Stroke[] = [];
   {
-    let prevX = -1;
-    for (let y = 18; y < H; y++) {
-      const x = Math.round(121 + (fbm(y / 16, 3.7, seed + 99, 3) - 0.5) * 16);
-      const width = y > 110 ? 3 : 2;
-      const from = prevX < 0 ? x : Math.min(prevX, x);
-      const to = prevX < 0 ? x : Math.max(prevX, x);
-      let hitSea = true;
-      for (let rx = from; rx <= to + width - 1; rx++) {
-        const t = T(rx, y);
-        if (t === Terrain.Sea || t === Terrain.Deep) continue;
-        hitSea = false;
-        setT(rx, y, Terrain.River);
-        zone[idx(rx, y)] = Zone.None;
+    const raw: Array<[number, number]> = [];
+    for (let y = 18; y < H; y += 3) {
+      const x = 121 + (fbm(y / 16, 3.7, seed + 99, 3) - 0.5) * 16;
+      raw.push([x, y]);
+      const t = T(Math.round(x), y);
+      if ((t === Terrain.Sea || t === Terrain.Deep) && y > 60) {
+        raw.push([x, y + 4]);
+        break;
       }
-      prevX = x;
-      if (hitSea && y > 60) break;
     }
+    const pts = simplify(chaikin(raw, 3), 0.5);
+    const hw = pts.map(([, y]) => 0.95 + Math.min(1, Math.max(0, (y - 40) / 110)) * 0.75);
+    const river: Stroke = { pts, hw };
+    rivers.push(river);
+    const b = strokeBounds(river);
+    for (let y = Math.max(0, Math.floor(b.y0)); y <= Math.min(H - 1, Math.ceil(b.y1)); y++)
+      for (let x = Math.max(0, Math.floor(b.x0)); x <= Math.min(W - 1, Math.ceil(b.x1)); x++) {
+        if (strokeDistance(river, x + 0.5, y + 0.5) < 0) {
+          const t = T(x, y);
+          if (t === Terrain.Sea || t === Terrain.Deep) continue;
+          setT(x, y, Terrain.River);
+          zone[idx(x, y)] = Zone.None;
+        }
+      }
   }
 
   // Farm pond — fresh water close to the fields.
@@ -273,8 +282,7 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
   const ship: Rect = { x: dockX + 2, y: shoreY + pierLen - 6, w: 12, h: 5 };
   for (let y = ship.y - 1; y < ship.y + ship.h + 1; y++)
     for (let x = ship.x; x < ship.x + ship.w + 1; x++) {
-      setT(x, y, Terrain.Deep);
-      elev[idx(x, y)] = Math.min(elev[idx(x, y)], -0.08);
+      if (!isWater(T(x, y))) setT(x, y, Terrain.Sea);
       solid[idx(x, y)] = 1;
     }
   interactables.push({ kind: 'ship', x: ship.x, y: pierEnd.y });
@@ -328,18 +336,42 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
       }
     return c / 4 + hash2(x, y, seed + 5) * 0.8;
   };
+  const roadStrokes: Stroke[] = [];
   const road = (ax: number, ay: number, bx: number, by: number, surface: number) => {
     const p = astar(W, H, ax, ay, bx, by, roadCost);
     if (!p) return;
     roads.push(p);
-    for (const [x, y] of p)
-      for (let oy = 0; oy < 2; oy++)
-        for (let ox = 0; ox < 2; ox++) {
-          const t = T(x + ox, y + oy);
-          if (t === Terrain.River) setT(x + ox, y + oy, Terrain.Bridge);
-          else if (t !== Terrain.Cobble && t !== Terrain.Dock && t !== Terrain.Bridge) setT(x + ox, y + oy, surface);
-          reserve(x + ox - 1, y + oy - 1, 3, 3);
-        }
+    // Centre of the 2×2 brush, smoothed into a flowing curve.
+    const pts = simplify(chaikin(p.map(([x, y]) => [x + 1, y + 1] as [number, number]), 3), 0.5);
+    const stroke: Stroke = { pts, hw: pts.map(() => 1.05) };
+    roadStrokes.push(stroke);
+    const b = strokeBounds(stroke);
+    const bridge: Array<[number, number]> = [];
+    for (let y = Math.max(0, Math.floor(b.y0) - 1); y <= Math.min(H - 1, Math.ceil(b.y1) + 1); y++)
+      for (let x = Math.max(0, Math.floor(b.x0) - 1); x <= Math.min(W - 1, Math.ceil(b.x1) + 1); x++) {
+        if (strokeDistance(stroke, x + 0.5, y + 0.5) >= 0) continue;
+        const t = T(x, y);
+        if (t === Terrain.River) bridge.push([x, y]);
+        else if (t !== Terrain.Cobble && t !== Terrain.Dock && t !== Terrain.Bridge && !isWater(t)) setT(x, y, surface);
+        reserve(x - 1, y - 1, 3, 3);
+      }
+    if (bridge.length) {
+      // A straight, rectangular bridge spanning the whole river.
+      const ys = bridge.map(([, y]) => y);
+      const y0 = Math.min(...ys);
+      const y1 = Math.max(y0 + 1, Math.min(Math.max(...ys), y0 + 2));
+      for (let y = y0; y <= y1; y++) {
+        const xs = bridge.filter(([, by]) => by === y).map(([x]) => x);
+        const seedX = xs.length ? xs[0] : bridge[0][0];
+        let l = seedX;
+        let r = seedX;
+        while (T(l - 1, y) === Terrain.River) l--;
+        while (T(r + 1, y) === Terrain.River) r++;
+        for (let x = l; x <= r; x++) setT(x, y, Terrain.Bridge);
+        if (!isWater(T(l - 1, y))) setT(l - 1, y, surface);
+        if (!isWater(T(r + 1, y))) setT(r + 1, y, surface);
+      }
+    }
   };
   const gateEast = { x: farm.x + farm.w, y: farm.y + 11 };
   const gateNorth = { x: farm.x + 22, y: farm.y - 2 };
@@ -502,6 +534,8 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
     ship,
     pierEnd,
     lighthouse,
+    rivers,
+    roads: roadStrokes,
   };
 }
 

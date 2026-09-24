@@ -271,6 +271,8 @@ export function buy(ctx: SimContext, p: PlayerState, shop: ShopId, itemId: strin
   const { state } = ctx;
   if (!Number.isInteger(qty) || qty < 1 || qty > 999) return null;
   if (!shopIsOpen(state, shop)) return '가게가 문을 닫았어요.';
+  const counter = ctx.map.interactables.find((i) => i.kind === shop);
+  if (counter && !inReach(p, counter.x, counter.y, REACH_PX + 48)) return '가게 앞에서 살 수 있어요.';
   if (!shopStock(state, shop).includes(itemId)) return '지금은 팔지 않는 물건이에요.';
   const def = getItem(itemId);
   if (def.kind === 'upgrade' || def.kind === 'tool') qty = 1;

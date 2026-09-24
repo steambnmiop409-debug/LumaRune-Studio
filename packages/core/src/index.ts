@@ -9,6 +9,7 @@ export * from './weather/weather';
 export * from './world/tiles';
 export * from './world/types';
 export * from './world/path';
+export * from './world/polyline';
 export * from './world/worldgen';
 export * from './farming/growth';
 export * from './economy/market';

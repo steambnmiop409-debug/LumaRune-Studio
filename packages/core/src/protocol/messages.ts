@@ -74,4 +74,6 @@ export type ServerMessage =
   | { t: 'placed'; placed: PlacedObject[] }
   | { t: 'self'; player: PlayerState; gold: number; lifetime: number; discovered: string[] }
   | { t: 'event'; e: GameEvent }
+  /** Server rejected a move; snap the local player back here. */
+  | { t: 'correct'; x: number; y: number }
   | { t: 'error'; reason: string };

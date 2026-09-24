@@ -1,3 +1,4 @@
+import type { Stroke } from './polyline';
 import type { ZoneId } from './tiles';
 
 export type ObjectKind =
@@ -84,6 +85,9 @@ export interface WorldMap {
   /** Pier tile the player stands on to load cargo. */
   pierEnd: { x: number; y: number };
   lighthouse: { x: number; y: number };
+  /** Smooth centre-lines used to render rivers and roads without a tile staircase. */
+  rivers: Stroke[];
+  roads: Stroke[];
 }
 
 export type ZoneAt = (x: number, y: number) => ZoneId;

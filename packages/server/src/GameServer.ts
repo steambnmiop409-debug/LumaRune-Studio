@@ -194,7 +194,7 @@ export class GameServer {
     };
     switch (msg.t) {
       case 'move':
-        this.move(p, msg.x, msg.y, msg.dir, msg.moving);
+        if (!this.move(p, msg.x, msg.y, msg.dir, msg.moving)) session.link.send({ t: 'correct', x: p.x, y: p.y });
         break;
       case 'select':
         if (Number.isInteger(msg.slot) && msg.slot >= 0 && msg.slot < HOTBAR_SIZE) {
@@ -236,22 +236,20 @@ export class GameServer {
     }
   }
 
-  private move(p: PlayerState, x: number, y: number, dir: PlayerState['dir'], moving: boolean) {
+  /** Returns false when the move was rejected and the client must be corrected. */
+  private move(p: PlayerState, x: number, y: number, dir: PlayerState['dir'], moving: boolean): boolean {
     const map = this.map!;
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
     const tx = Math.floor(x / TILE);
     const ty = Math.floor(y / TILE);
     const tooFar = Math.hypot(x - p.x, y - p.y) > MAX_MOVE_STEP;
     const blocked = tx < 0 || ty < 0 || tx >= map.w || ty >= map.h || map.solid[ty * map.w + tx] === 1;
-    if (tooFar || blocked) {
-      // Correct the client.
-      this.dirtyPlayers.add(p.id);
-      return;
-    }
+    if (tooFar || blocked) return false;
     p.x = x;
     p.y = y;
     if (dir === 'down' || dir === 'up' || dir === 'left' || dir === 'right') p.dir = dir;
     p.moving = !!moving;
+    return true;
   }
 
   private debug(p: PlayerState, cmd: string, arg?: number) {
@@ -260,6 +258,12 @@ export class GameServer {
     else if (cmd === 'gold') state.gold += arg ?? 1000;
     else if (cmd === 'skip') for (let i = 0; i < (arg ?? 60); i++) this.stepMinute();
     else if (cmd === 'sleep') this.nextDay(false);
+    else if (cmd === 'tp' && arg !== undefined) {
+      // arg encodes a tile: y * 1000 + x
+      p.x = (arg % 1000) * TILE + TILE / 2;
+      p.y = Math.floor(arg / 1000) * TILE + TILE - 2;
+      for (const s of this.sessions.values()) if (s.playerId === p.id) s.link.send({ t: 'correct', x: p.x, y: p.y });
+    }
     else if (cmd === 'minute') state.clock.minute = Math.max(state.clock.minute, Math.min(DAY_END - 1, arg ?? state.clock.minute));
     else if (cmd === 'weather') {
       const kinds = ['clear', 'cloudy', 'rain', 'storm', 'fog', 'snow'] as const;
@@ -322,6 +326,11 @@ export class GameServer {
     this.dirtyPlaced = true;
     for (const p of Object.values(state.players)) this.dirtyPlayers.add(p.id);
     this.emit({ t: 'dayStart', summary }, 'all');
+    // Everyone wakes up at home.
+    for (const s of this.sessions.values()) {
+      const p = this.playerOf(s);
+      if (p) s.link.send({ t: 'correct', x: p.x, y: p.y });
+    }
     this.emit({ t: 'shipArrived' }, 'all');
     this.acc = 0;
     this.flush();

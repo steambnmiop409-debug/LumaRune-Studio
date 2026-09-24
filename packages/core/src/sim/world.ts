@@ -146,7 +146,8 @@ export function departShip(state: WorldState): ShipmentRecord | null {
  * Crops grow using the finished day's weather, soil dries, markets recover, the ship returns.
  */
 export function advanceDay(state: WorldState, map: WorldMap, rng: Rng, passedOut: boolean): { summary: DaySummary; changed: number[] } {
-  const shipment = departShip(state);
+  // Today's shipment: either it leaves now (slept before 17:00) or it already left at 17:00.
+  const shipment = departShip(state) ?? state.history.find((h) => h.day === state.clock.day) ?? null;
   const ended = state.weather;
   const deaths: DaySummary['deaths'] = {};
   let ready = 0;

@@ -6,7 +6,7 @@ describe('island generation', () => {
 
   it('is deterministic', () => {
     const again = generateWorld();
-    expect(Buffer.from(again.terrain).equals(Buffer.from(map.terrain))).toBe(true);
+    expect(again.terrain.every((v, i) => v === map.terrain[i])).toBe(true);
     expect(again.objects.length).toBe(map.objects.length);
   });
 
