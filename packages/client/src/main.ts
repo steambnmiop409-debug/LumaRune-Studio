@@ -1,5 +1,6 @@
 import { Game } from './engine/Game';
 import { loadFonts } from './engine/text';
+import { host } from './platform/host';
 import { TitleScene } from './scenes/TitleScene';
 
 async function boot(): Promise<void> {
@@ -14,6 +15,13 @@ async function boot(): Promise<void> {
   game.setScene(new TitleScene());
   game.start();
   (window as unknown as { __game: Game }).__game = game;
+  // The desktop app asks before closing the window: save the world, then let it go.
+  host?.onBeforeQuit(() => {
+    const pending = game.scene?.save?.() ?? Promise.resolve(true);
+    void pending.finally(() => host!.quitReady());
+  });
+  // Browsers may clear site data under storage pressure unless asked to keep it.
+  if (!host) void navigator.storage?.persist?.().catch(() => false);
 }
 
 void boot();

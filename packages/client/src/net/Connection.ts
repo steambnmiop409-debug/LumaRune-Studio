@@ -1,5 +1,8 @@
 import type { ClientMessage, ServerMessage } from '@lumina/core';
 import ServerWorker from '@lumina/server/worker?worker';
+import { host } from '../platform/host';
+
+type StoreRequest = { __store: { id: number; op: 'load' | 'save' | 'remove'; slot: number; data?: string } };
 
 /** A pipe to a game server — the client never touches the simulation directly. */
 export interface Connection {
@@ -15,7 +18,22 @@ export class WorkerConnection implements Connection {
 
   constructor() {
     this.worker = new ServerWorker();
-    this.worker.onmessage = (e: MessageEvent<ServerMessage>) => this.onMessage?.(e.data);
+    // In the desktop app, saves are files the app writes for the worker.
+    const files = host?.saves;
+    if (files) this.worker.postMessage({ __host: 'files' });
+    this.worker.onmessage = (e: MessageEvent<ServerMessage | StoreRequest>) => {
+      const d = e.data;
+      if (files && '__store' in d) {
+        const { id, op, slot, data } = d.__store;
+        const call = op === 'load' ? files.load(slot) : op === 'save' ? files.save(slot, data ?? '') : files.remove(slot);
+        call.then(
+          (r) => this.worker.postMessage({ __storeReply: { id, ok: true, data: r ?? null } }),
+          (err: unknown) => this.worker.postMessage({ __storeReply: { id, ok: false, error: String(err) } }),
+        );
+        return;
+      }
+      this.onMessage?.(d as ServerMessage);
+    };
   }
 
   send(msg: ClientMessage): void {

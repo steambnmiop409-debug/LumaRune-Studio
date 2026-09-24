@@ -39,6 +39,32 @@ describe('GameServer', () => {
     expect(saved!.state.clock.day).toBe(1);
   });
 
+  it('saves on request, autosaves during play and reports a failed write', async () => {
+    const { server, store, inbox } = harness();
+    await server.handle('c1', { t: 'join', slot: 0, newGame: { name: 'A', farmName: 'B', look: DEFAULT_APPEARANCE } });
+    server.world!.gold = 777;
+    inbox.length = 0;
+    await server.handle('c1', { t: 'save' });
+    expect((await store.load(0))!.state.gold).toBe(777);
+    expect(inbox.some((m) => m.t === 'event' && m.e.t === 'saved' && m.e.ok)).toBe(true);
+
+    // Half a minute of play later the world is on disk without anyone asking.
+    server.world!.gold = 888;
+    for (let i = 0; i < 31; i++) server.update(1000);
+    await server.persist();
+    expect((await store.load(0))!.state.gold).toBe(888);
+    server.world!.gold = 889;
+    server.update(31_000);
+    await new Promise((r) => setTimeout(r, 0));
+    expect((await store.load(0))!.state.gold).toBe(889);
+
+    // A broken disk is reported, not swallowed.
+    store.save = () => Promise.reject(new Error('disk full'));
+    inbox.length = 0;
+    await server.handle('c1', { t: 'save' });
+    expect(inbox.some((m) => m.t === 'event' && m.e.t === 'saved' && !m.e.ok)).toBe(true);
+  });
+
   it('rejects teleport-like movement', async () => {
     const { server } = harness();
     await server.handle('c1', { t: 'join', slot: 0, newGame: { name: 'A', farmName: 'B', look: DEFAULT_APPEARANCE } });

@@ -11,7 +11,7 @@ export class Game {
   readonly input: Input;
   readonly audio = new AudioManager();
   readonly ui: UI;
-  private scene: Scene | null = null;
+  scene: Scene | null = null;
   private last = performance.now();
   time = 0;
 

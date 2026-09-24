@@ -104,6 +104,22 @@ export function swapSlots(inv: Array<ItemStack | null>, a: number, b: number): v
 const KIND_ORDER = ['tool', 'seed', 'fertilizer', 'tonic', 'placeable', 'crate', 'material', 'produce', 'forage', 'artisan', 'gem', 'upgrade'];
 
 /** Tidies the backpack (the hotbar stays as the player arranged it): merges stacks, then orders by kind, name and quality. */
+/** Moves `qty` of the stack in `from` into `to` (an empty slot or the same item), e.g. splitting a stack in half. */
+export function splitStack(inv: Array<ItemStack | null>, from: number, to: number, qty: number): void {
+  if (from === to || from < 0 || to < 0 || from >= inv.length || to >= inv.length) return;
+  const src = inv[from];
+  if (!src || !Number.isInteger(qty) || qty < 1) return;
+  const dst = inv[to];
+  if (dst && !sameStack(dst, src.id, src.q)) return;
+  const max = getItem(src.id).maxStack;
+  const n = Math.min(qty, src.qty, max - (dst?.qty ?? 0));
+  if (n <= 0) return;
+  if (dst) dst.qty += n;
+  else inv[to] = { ...src, qty: n };
+  src.qty -= n;
+  if (src.qty <= 0) inv[from] = null;
+}
+
 export function sortBackpack(inv: Array<ItemStack | null>): void {
   const items = inv.slice(HOTBAR_SIZE).filter((s): s is ItemStack => !!s);
   for (let i = HOTBAR_SIZE; i < inv.length; i++) inv[i] = null;

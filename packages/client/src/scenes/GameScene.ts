@@ -49,6 +49,8 @@ import { DaySummaryPanel, JournalPanel, LiftPanel, RepairPanel, PackingPanel, Pa
 import { TitleScene } from './TitleScene';
 import { BoardPanel, DialoguePanel } from '../ui/social';
 import { ChestPanel, CraftPanel } from '../ui/crafting';
+import { InventoryPanel } from '../ui/inventory';
+import { MapPanel } from '../ui/map';
 
 const SPEED = 88;
 const SWING_TIME = 0.32;
@@ -105,6 +107,12 @@ export class GameScene implements Scene {
   private cursorPulse = 0;
   private useHeld = 0;
   private npcAnim = new Map<string, number>();
+  /** Callers waiting on a save to reach the disk, and the corner indicator's remaining time. */
+  private saveWaiters: Array<(ok: boolean) => void> = [];
+  private saveShown = 0;
+  private readonly onHidden = () => {
+    if (document.visibilityState === 'hidden') this.send({ t: 'save' });
+  };
 
   constructor(
     private conn: Connection,
@@ -117,7 +125,22 @@ export class GameScene implements Scene {
     this.px = this.world.self.x;
     this.py = this.world.self.y;
     this.hud.setGoldInstant(this.world.gold);
-    conn.onMessage = (m) => this.world.apply(m);
+    conn.onMessage = (m) => {
+      this.world.apply(m);
+      // Resolved here rather than in update(): frames stop while the window is hidden or closing.
+      if (m.t === 'event' && m.e.t === 'saved') for (const w of this.saveWaiters.splice(0)) w(m.e.ok);
+    };
+  }
+
+  save(): Promise<boolean> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(false), 6000);
+      this.saveWaiters.push((ok) => {
+        clearTimeout(timer);
+        resolve(ok);
+      });
+      this.send({ t: 'save' });
+    });
   }
 
   enter(game: Game): void {
@@ -130,9 +153,13 @@ export class GameScene implements Scene {
       this.hud.toast('수확물은 포장대에서 상자에 담아 부두의 배로!', 'info');
     }
     game.audio.preload(['hoe', 'water', 'plant', 'harvest', 'pop', 'coin', 'click', 'step_grass', 'step_path', 'crate', 'open']);
+    document.addEventListener('visibilitychange', this.onHidden);
+    window.addEventListener('pagehide', this.onHidden);
   }
 
   exit(): void {
+    document.removeEventListener('visibilitychange', this.onHidden);
+    window.removeEventListener('pagehide', this.onHidden);
     this.conn.close();
   }
 
@@ -242,6 +269,7 @@ export class GameScene implements Scene {
 
   update(dt: number): void {
     this.time += dt;
+    this.saveShown = Math.max(0, this.saveShown - dt);
     const game = this.game;
     const input = game.input;
     const world = this.world;
@@ -259,7 +287,24 @@ export class GameScene implements Scene {
     // Panels.
     if (this.panel) {
       this.panel.update?.(dt);
-      if (input.wasPressed('cancel') || (this.panel instanceof JournalPanel && (input.wasPressed('journal') || input.wasPressed('map')))) this.panel.closed = true;
+      if (
+        input.wasPressed('cancel') ||
+        (this.panel instanceof JournalPanel && input.wasPressed('journal')) ||
+        (this.panel instanceof InventoryPanel && input.wasPressed('inventory')) ||
+        (this.panel instanceof MapPanel && input.wasPressed('map'))
+      )
+        this.panel.closed = true;
+      else if (this.panel instanceof JournalPanel || this.panel instanceof InventoryPanel || this.panel instanceof MapPanel) {
+        // The bag, the journal and the map switch straight to one another.
+        const next = input.wasPressed('inventory')
+          ? new InventoryPanel(world, (m) => this.send(m), game.audio)
+          : input.wasPressed('journal')
+            ? new JournalPanel(world, (m) => this.send(m), game.audio)
+            : input.wasPressed('map')
+              ? new MapPanel(world, game.audio)
+              : null;
+        if (next) this.panel = next;
+      }
       if (this.panel.closed) {
         this.panel = null;
         game.audio.play('close', { volume: 0.5 });
@@ -345,8 +390,15 @@ export class GameScene implements Scene {
 
     for (let i = 0; i < HOTBAR_SIZE; i++) if (input.keyPressed(`Digit${(i + 1) % 10}`)) this.select(i);
     if (input.wheel && !game.ui.hovering) this.select((self.sel + (input.wheel > 0 ? 1 : HOTBAR_SIZE - 1)) % HOTBAR_SIZE);
-    if (input.wasPressed('journal')) this.open(new JournalPanel(world, (m) => this.send(m), game.audio, 'bag'));
-    if (input.wasPressed('map')) this.open(new JournalPanel(world, (m) => this.send(m), game.audio, 'map'));
+    if (input.wasPressed('inventory')) {
+      this.panel = new InventoryPanel(world, (m) => this.send(m), game.audio);
+      return;
+    }
+    if (input.wasPressed('journal')) this.open(new JournalPanel(world, (m) => this.send(m), game.audio));
+    if (input.wasPressed('map')) {
+      this.panel = new MapPanel(world, game.audio);
+      return;
+    }
     if (input.wasPressed('cancel')) this.open(new PauseMenu(game.audio, () => this.quit()));
     if (import.meta.env.DEV) {
       if (input.keyPressed('F1')) this.send({ t: 'debug', cmd: 'weather', arg: (['clear', 'cloudy', 'rain', 'storm', 'fog', 'snow'].indexOf(world.weather.kind) + 1) % 6 });
@@ -430,8 +482,13 @@ export class GameScene implements Scene {
     this.game.audio.play('open', { volume: 0.55 });
   }
 
-  private quit() {
-    this.send({ t: 'pause', on: false });
+  /** Save, wait for the disk, then leave for the title screen. */
+  private async quit() {
+    const ok = await this.save();
+    if (!ok) {
+      this.hud.toast('저장하지 못해서 나가지 않았어요. 잠시 후 다시 시도해 주세요.', 'warn');
+      return;
+    }
     this.game.setScene(new TitleScene());
   }
 
@@ -608,7 +665,8 @@ export class GameScene implements Scene {
         this.pickups.push({ img: Sprites.icon(e.item), x: e.x * TILE + 8, y: e.y * TILE + 4, t: Math.random() * 0.1, label: `+${e.qty}` });
         break;
       case 'saved':
-        this.hud.toast('저장했어요', 'info');
+        this.saveShown = 1.6;
+        if (!e.ok) this.hud.toast('저장하지 못했어요. 디스크 공간과 권한을 확인해 주세요.', 'warn');
         break;
       case 'openRepair':
         this.open(new RepairPanel(this.world, () => this.send({ t: 'repair' })));
@@ -864,8 +922,9 @@ export class GameScene implements Scene {
     this.hud.carrying(ui, vw, vh, self.carrying, self.cart);
     this.hud.drawToasts(ui, vw);
     this.hud.drawBanner(ui, vw, vh);
-    drawText(ctx, 'Tab 일지 · M 지도 · Esc 메뉴', 6, vh - 12, { font: 'small', color: P.paperLight, outline: P.ink });
+    if (this.saveShown > 0) this.hud.saveBadge(ui, vw, vh, this.saveShown, this.time);
     if (this.panel) this.panel.draw(ui, vw, vh);
+    else drawText(ctx, 'E 가방 · Tab 일지 · M 지도 · Esc 메뉴', 6, vh - 12, { font: 'small', color: P.paperLight, outline: P.ink });
   }
 
   /** Underground: the floor, pickups, the target bracket and ladder / rock hints, then the HUD. */
@@ -912,7 +971,7 @@ export class GameScene implements Scene {
     ctx.fillRect(bx + 3, by + 2, 11, 11);
     ctx.fillStyle = P.brassLight;
     ctx.fillRect(bx + 4, by + 3, 9, 8);
-    drawText(ctx, 'E', bx + 8, by + 2, { font: 'small', align: 'center' });
+    drawText(ctx, 'F', bx + 8, by + 2, { font: 'small', align: 'center' });
     drawText(ctx, text, bx + 17, by + 2, { font: 'small' });
   }
 

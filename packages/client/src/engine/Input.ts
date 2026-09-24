@@ -8,6 +8,7 @@ export type Action =
   | 'use'
   | 'interact'
   | 'journal'
+  | 'inventory'
   | 'map'
   | 'cancel'
   | 'confirm'
@@ -19,8 +20,9 @@ const BINDINGS: Record<Action, string[]> = {
   left: ['KeyA', 'ArrowLeft'],
   right: ['KeyD', 'ArrowRight'],
   use: ['Space', 'KeyC'],
-  interact: ['KeyE', 'KeyX', 'KeyF'],
-  journal: ['Tab', 'KeyI'],
+  interact: ['KeyF', 'KeyX'],
+  inventory: ['KeyE', 'KeyI'],
+  journal: ['Tab'],
   map: ['KeyM'],
   cancel: ['Escape'],
   confirm: ['Enter'],

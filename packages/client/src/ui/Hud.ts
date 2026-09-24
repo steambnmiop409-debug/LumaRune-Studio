@@ -269,6 +269,26 @@ export class Hud {
     }
   }
 
+  /** A little book with a turning page in the corner while the game saves, like most games do. */
+  saveBadge(ui: UI, vw: number, vh: number, left: number, time: number): void {
+    const ctx = ui.ctx;
+    ctx.globalAlpha = Math.min(1, left / 0.4);
+    const x = vw - 84;
+    const y = vh - 20;
+    ctx.fillStyle = P.ink;
+    ctx.fillRect(x, y, 13, 11);
+    ctx.fillStyle = '#6e4a3a';
+    ctx.fillRect(x + 1, y + 1, 11, 9);
+    ctx.fillStyle = P.paperLight;
+    ctx.fillRect(x + 2, y + 2, 4, 7);
+    const flip = Math.floor(time * 6) % 3;
+    ctx.fillRect(x + 7 - (flip === 1 ? 2 : 0), y + 2 + (flip === 1 ? 1 : 0), 4, 7 - (flip === 1 ? 1 : 0));
+    ctx.fillStyle = P.paperShade;
+    ctx.fillRect(x + 6, y + 2, 1, 7);
+    drawText(ctx, '저장 중', x + 17, y + 1, { font: 'small', color: P.paperLight, outline: P.ink });
+    ctx.globalAlpha = 1;
+  }
+
   stamina(ui: UI, vw: number, vh: number, p: PlayerState): void {
     const ctx = ui.ctx;
     const x = vw - 22;

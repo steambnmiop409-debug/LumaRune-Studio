@@ -4,10 +4,8 @@ import {
   CART_CAPACITY,
   CRATE_CAPACITY,
   CROPS,
-  INVENTORY_SIZE,
   SHOPS,
   TILE,
-  Terrain,
   WEATHER_NAME,
   ZONE_NAME,
   countItem,
@@ -21,10 +19,16 @@ import {
   type CropCategory,
   type DaySummary,
   type ShopId,
-  type WorldMap,
   allNpcPoses,
-  CLOTH_COLORS,
+  isReady,
+  MAX_HEARTS,
+  MINE_DEPTH,
+  NPCS,
   NPC_BY_ID,
+  POINTS_PER_HEART,
+  SHIP_DEPARTURE,
+  WATER_THRESHOLD,
+  type Appearance,
 } from '@lumina/core';
 import { Sprites } from '../art/Sprites';
 import { WALK_FRAMES } from '../art/sprites/character';
@@ -33,6 +37,7 @@ import type { AudioManager } from '../audio/AudioManager';
 import { drawText, measure, wrap } from '../engine/text';
 import type { ClientWorld } from '../net/ClientWorld';
 import { icon2x, itemCard, seedCard } from './cards';
+import { heartsRow } from './social';
 import { formatGold, type UI } from './kit';
 
 export interface Panel {
@@ -68,75 +73,60 @@ function dimBackground(ui: UI, vw: number, vh: number, a = 0.45) {
 
 // ───────────────────────────── Journal ─────────────────────────────
 
-type JournalTab = 'bag' | 'dex' | 'log' | 'map';
+type JournalTab = 'island' | 'people' | 'dex' | 'log';
 const TABS: Array<[JournalTab, string, string]> = [
-  ['bag', '가방', '#c8704a'],
+  ['island', '나의 섬', '#c8704a'],
+  ['people', '주민', '#9a78b0'],
   ['dex', '도감', '#5a9a6a'],
   ['log', '출하', '#4f7ab0'],
-  ['map', '지도', '#9a78b0'],
 ];
 const CATS: Array<CropCategory | 'all'> = ['all', 'leafy', 'root', 'bulb', 'fruitveg', 'legume', 'grain', 'special', 'herb', 'flower', 'fruit'];
 
-let minimapCache: HTMLCanvasElement | null = null;
-function minimap(map: WorldMap): HTMLCanvasElement {
-  if (minimapCache) return minimapCache;
-  const c = document.createElement('canvas');
-  c.width = map.w;
-  c.height = map.h;
-  const ctx = c.getContext('2d')!;
-  const img = ctx.createImageData(map.w, map.h);
-  const col: Record<number, [number, number, number]> = {
-    [Terrain.Deep]: [58, 100, 150],
-    [Terrain.Sea]: [96, 158, 196],
-    [Terrain.River]: [110, 178, 196],
-    [Terrain.Pond]: [110, 178, 196],
-    [Terrain.Sand]: [232, 214, 162],
-    [Terrain.Grass]: [138, 184, 98],
-    [Terrain.Forest]: [92, 140, 80],
-    [Terrain.Meadow]: [168, 200, 118],
-    [Terrain.Path]: [206, 170, 120],
-    [Terrain.Cobble]: [196, 188, 176],
-    [Terrain.Rock]: [160, 154, 148],
-    [Terrain.Dock]: [170, 120, 80],
-    [Terrain.Bridge]: [170, 120, 80],
-    [Terrain.Cliff]: [150, 128, 104],
-    [Terrain.Stairs]: [200, 190, 170],
-  };
-  for (let i = 0; i < map.terrain.length; i++) {
-    const [r, g, b] = col[map.terrain[i]] ?? [0, 0, 0];
-    img.data.set([r, g, b, 255], i * 4);
-  }
-  ctx.putImageData(img, 0, 0);
-  // Plateaus read a shade lighter, with their rims drawn in.
-  for (let i = 0; i < map.terrain.length; i++) {
-    if (!map.level[i] || map.terrain[i] === Terrain.Sea || map.terrain[i] === Terrain.Deep) continue;
-    const d = img.data;
-    d[i * 4] = Math.min(255, d[i * 4] + 16);
-    d[i * 4 + 1] = Math.min(255, d[i * 4 + 1] + 14);
-    d[i * 4 + 2] = Math.min(255, d[i * 4 + 2] + 8);
-  }
-  ctx.putImageData(img, 0, 0);
-  for (const o of map.objects)
-    if (o.kind === 'oak' || o.kind === 'pine' || o.kind === 'blossom' || o.kind === 'palm' || o.kind === 'fruittree') {
-      ctx.fillStyle = o.kind === 'blossom' ? '#e8a8b8' : o.kind === 'fruittree' ? '#6aa84a' : o.kind === 'pine' ? '#3e6a3e' : '#4a7a44';
-      ctx.fillRect(o.x, o.y, 1, 1);
-    }
-  for (const b of map.buildings) {
-    ctx.fillStyle = b.kind === 'seedShop' ? '#5aa58a' : b.kind === 'toolShop' ? '#5a6a8a' : b.kind === 'lighthouse' ? '#e05a4a' : '#c8704a';
-    ctx.fillRect(b.x, b.y, b.w, b.h);
-  }
-  ctx.fillStyle = '#7a5236';
-  ctx.fillRect(map.ship.x, map.ship.y + 1, map.ship.w, map.ship.h - 2);
-  minimapCache = c;
-  return c;
+type Page = { lx: number; rx: number; py: number; pw: number; ph: number };
+
+/** A labelled progress bar on a journal page. */
+function progress(ui: UI, x: number, y: number, w: number, label: string, value: string, f: number, color: string = P.teal) {
+  const c = ui.ctx;
+  drawText(c, label, x, y, { font: 'small' });
+  drawText(c, value, x + w, y, { font: 'small', color: P.inkSoft, align: 'right' });
+  const r = { x, y: y + 12, w, h: 6 };
+  c.fillStyle = P.ink;
+  c.fillRect(r.x, r.y, r.w, r.h);
+  c.fillStyle = P.paperShade;
+  c.fillRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2);
+  const fw = Math.round((r.w - 2) * Math.max(0, Math.min(1, f)));
+  c.fillStyle = color;
+  c.fillRect(r.x + 1, r.y + 1, fw, r.h - 2);
+  c.fillStyle = 'rgba(255,255,255,0.35)';
+  c.fillRect(r.x + 1, r.y + 1, fw, 1);
+}
+
+function rule(ui: UI, x: number, y: number, w: number) {
+  ui.ctx.fillStyle = P.paperShade;
+  ui.ctx.fillRect(x, y, w, 1);
+}
+
+/** A small painted backdrop (sky and grass) with a character standing on it at 2×. */
+function stage(ui: UI, x: number, y: number, w: number, h: number, img: HTMLCanvasElement) {
+  const c = ui.ctx;
+  c.fillStyle = P.ink;
+  c.fillRect(x - 1, y - 1, w + 2, h + 2);
+  c.fillStyle = '#bcd8e8';
+  c.fillRect(x, y, w, h);
+  c.fillStyle = '#95c776';
+  c.fillRect(x, y + h - 18, w, 18);
+  c.fillStyle = '#7ab35a';
+  for (let i = 0; i < 9; i++) c.fillRect(x + ((i * 23) % (w - 2)) + 1, y + h - 16 + ((i * 7) % 14), 2, 1);
+  c.fillStyle = 'rgba(24,30,64,0.25)';
+  c.fillRect(x + w / 2 - 10, y + h - 9, 20, 3);
+  c.drawImage(img, Math.round(x + w / 2 - img.width), y + h - 8 - img.height * 2, img.width * 2, img.height * 2);
 }
 
 export class JournalPanel implements Panel {
   closed = false;
   pauses = true;
   tab: JournalTab;
-  private picked: number | null = null;
-  private selected = 0;
+  private who = 0;
   private dexCat: CropCategory | 'all' = 'all';
   private dexPage = 0;
   private dexSel: string | null = null;
@@ -147,7 +137,7 @@ export class JournalPanel implements Panel {
     private world: ClientWorld,
     private send: Send,
     private audio: AudioManager,
-    tab: JournalTab = 'bag',
+    tab: JournalTab = 'island',
   ) {
     this.tab = tab;
   }
@@ -185,79 +175,236 @@ export class JournalPanel implements Panel {
     c.fillStyle = shade(P.paperShade, 1);
     c.fillRect(lx + pw - 2, py, 2, ph);
     c.fillRect(rx, py, 2, ph);
-    // Bookmark ribbons.
-    TABS.forEach(([id, label, color], i) => {
-      const r = { x: x + W - 2, y: y + 14 + i * 26, w: 30, h: 22 };
+    // Bookmark tabs along the top edge.
+    let tx = x + 14;
+    TABS.forEach(([id, label, color]) => {
+      const tw = measure(label, 'small') + 16;
       const active = this.tab === id;
+      const r = { x: tx, y: y - (active ? 17 : 14), w: tw, h: active ? 18 : 15 };
+      const hot = ui.hover(r);
       c.fillStyle = P.ink;
-      c.fillRect(r.x, r.y, r.w + (active ? 4 : 0), r.h);
-      c.fillStyle = active ? color : shade(color, 1);
-      c.fillRect(r.x, r.y + 1, r.w - 1 + (active ? 4 : 0), r.h - 2);
-      drawText(c, label, r.x + 15 + (active ? 2 : 0), r.y + 5, { font: 'small', color: P.paperLight, align: 'center' });
-      if (ui.clicked(r)) {
+      c.fillRect(r.x - 1, r.y - 1, r.w + 2, r.h + 1);
+      c.fillStyle = active ? color : hot ? shade(color, 0) : shade(color, 1);
+      c.fillRect(r.x, r.y, r.w, r.h);
+      c.fillStyle = 'rgba(255,255,255,0.3)';
+      c.fillRect(r.x, r.y, r.w, 1);
+      drawText(c, label, r.x + r.w / 2, r.y + 3, { font: 'small', color: P.paperLight, align: 'center' });
+      if (ui.clicked(r) && !active) {
         this.tab = id;
-        this.audio.play('open', { volume: 0.5 });
+        this.audio.play('page', { volume: 0.5 });
       }
-      ui.hover(r);
+      tx += tw + 3;
     });
+    drawText(c, 'A/D: 넘기기', x + W - 20, y - 12, { font: 'small', color: P.paperLight, outline: P.ink, align: 'right' });
+    const order = TABS.map((t) => t[0]);
+    const k = ui.input;
+    const step = k.keyPressed('KeyA') || k.keyPressed('ArrowLeft') ? -1 : k.keyPressed('KeyD') || k.keyPressed('ArrowRight') ? 1 : 0;
+    if (step) {
+      this.tab = order[(order.indexOf(this.tab) + step + order.length) % order.length];
+      this.audio.play('page', { volume: 0.5 });
+    }
     if (closeButton(ui, x + W - 16, y - 6)) this.closed = true;
 
     const page = { lx, rx, py, pw, ph };
-    if (this.tab === 'bag') this.drawBag(ui, page);
+    if (this.tab === 'island') this.drawIsland(ui, page);
+    else if (this.tab === 'people') this.drawPeople(ui, page);
     else if (this.tab === 'dex') this.drawDex(ui, page);
-    else if (this.tab === 'log') this.drawLog(ui, page);
-    else this.drawMap(ui, x + 8, py, W - 16, ph);
+    else this.drawLog(ui, page);
   }
 
-  private drawBag(ui: UI, { lx, rx, py, pw }: { lx: number; rx: number; py: number; pw: number; ph: number }) {
+  /** Left: you, your farm and how far you've come. Right: today — weather, the ship, the board and the fields. */
+  private drawIsland(ui: UI, { lx, rx, py, pw }: Page) {
     const c = ui.ctx;
-    const p = this.world.self;
-    drawText(c, '가방', lx + 10, py + 6, { font: 'bold' });
-    if (ui.button({ x: lx + 96, y: py + 3, w: 38, h: 15 }, '정리')) {
-      this.send({ t: 'sort' });
-      this.picked = -1;
-    }
-    drawText(c, '클릭해서 집고 다른 칸에 놓아요. 윗 두 줄이 핫바.', lx + 10, py + 20, { font: 'small', color: P.inkSoft });
-    const cols = 5;
-    const gx = lx + 12;
-    const gy = py + 36;
-    for (let i = 0; i < INVENTORY_SIZE; i++) {
-      const sx = gx + (i % cols) * 25;
-      const sy = gy + Math.floor(i / cols) * 25 + (i >= 10 ? 5 : 0);
-      const hot = ui.slot(sx, sy, p.inv[i], this.picked === i || this.selected === i);
-      if (i < 10) {
-        c.fillStyle = P.brass;
-        c.fillRect(sx + 1, sy + 20, 20, 1);
-      }
-      if (hot) this.selected = i;
-      if (ui.clicked({ x: sx, y: sy, w: 22, h: 22 })) {
-        if (this.picked === null) {
-          if (p.inv[i]) this.picked = i;
-        } else {
-          if (this.picked !== i) this.send({ t: 'swap', a: this.picked, b: i });
-          this.picked = null;
-        }
-        this.audio.play('click', { volume: 0.5 });
-      }
-    }
+    const w = this.world;
+    const p = w.self;
+    drawText(c, '나의 섬', lx + 10, py + 6, { font: 'bold' });
+    drawText(c, `섬 생활 ${w.clock.day + 1}일째`, lx + pw - 10, py + 8, { font: 'small', color: P.inkSoft, align: 'right' });
+    const dir = (['down', 'left', 'down', 'right'] as const)[Math.floor(this.time / 2.4) % 4];
+    const walking = Math.floor(this.time / 1.2) % 2 === 1;
+    stage(ui, lx + 10, py + 24, 56, 76, Sprites.character(p.look).frame(dir, walking ? Math.floor(this.time * 13) % WALK_FRAMES : -1, 'free', !walking && this.time % 3.2 > 3.05).img);
+    const tx = lx + 76;
+    drawText(c, p.name, tx, py + 26, { font: 'bold' });
+    drawText(c, p.farmName, tx, py + 40, { font: 'small', color: P.inkSoft });
+    c.drawImage(Sprites.coin(), tx, py + 58);
+    drawText(c, formatGold(w.gold), tx + 12, py + 56, { font: 'bold' });
+    drawText(c, `누적 출하 ${formatGold(w.lifetime)}`, tx, py + 72, { font: 'small', color: P.inkSoft });
     const crates = countItem(p.inv, 'crate');
-    drawText(c, `빈 출하 상자 ${crates}개 · 손수레 ${p.cart ? '있음' : '없음'}`, lx + 12, gy + 160, { font: 'small', color: P.inkSoft });
+    drawText(c, `빈 상자 ${crates}개 · 손수레 ${p.cart ? '있음' : '없음'}`, tx, py + 86, { font: 'small', color: P.inkSoft });
 
-    // Right page: item card + farmer.
-    const st = p.inv[this.selected];
-    if (st) itemCard(ui, rx + 12, py + 10, pw - 24, st.id, st.q);
-    else drawText(c, '빈 칸', rx + 12, py + 12, { color: P.inkSoft });
-    const sheet = Sprites.character(p.look);
-    const fy = py + 150;
-    c.fillStyle = P.paperShade;
-    c.fillRect(rx + 12, fy - 6, pw - 24, 1);
-    const dir = (['down', 'left', 'up', 'right'] as const)[Math.floor(this.time / 1.2) % 4];
-    c.drawImage(sheet.frame(dir, Math.floor(this.time * 13) % WALK_FRAMES).img, rx + 14, fy, 32, 64);
-    drawText(c, p.name, rx + 56, fy + 4, { font: 'bold' });
-    drawText(c, p.farmName, rx + 56, fy + 18, { font: 'small', color: P.inkSoft });
-    c.drawImage(Sprites.coin(), rx + 56, fy + 34);
-    drawText(c, formatGold(this.world.gold), rx + 68, fy + 32);
-    drawText(c, `누적 출하 ${formatGold(this.world.lifetime)}`, rx + 56, fy + 46, { font: 'small', color: P.inkSoft });
+    let y = py + 110;
+    rule(ui, lx + 10, y, pw - 20);
+    y += 6;
+    drawText(c, '진행도', lx + 10, y, { font: 'small', color: P.inkSoft });
+    y += 14;
+    const bw = pw - 20;
+    progress(ui, lx + 10, y, bw, '작물 도감', `${w.discovered.size} / ${CROPS.length}`, w.discovered.size / CROPS.length, '#5a9a6a');
+    y += 24;
+    const deepest = w.state.mine.deepest;
+    progress(ui, lx + 10, y, bw, '광산 탐사', `${deepest} / ${MINE_DEPTH}층`, deepest / MINE_DEPTH, '#8a7a9a');
+    y += 24;
+    const love = NPCS.reduce((n, d) => n + Math.min(MAX_HEARTS, Math.floor((w.state.npcs[d.id]?.points ?? 0) / POINTS_PER_HEART)), 0);
+    progress(ui, lx + 10, y, bw, '주민과의 우정', `♥ ${love} / ${NPCS.length * MAX_HEARTS}`, love / (NPCS.length * MAX_HEARTS), '#e0485e');
+    y += 24;
+    progress(ui, lx + 10, y, bw, '온실', w.state.greenhouse ? '복구 완료' : `복구 전 · ${formatGold(GREENHOUSE_COST.gold)}`, w.state.greenhouse ? 1 : 0, P.brass);
+
+    // Right page: today.
+    const x = rx + 12;
+    const cw = pw - 24;
+    drawText(c, '오늘', x, py + 6, { font: 'bold' });
+    drawText(c, formatDate(w.clock.day), x + cw, py + 8, { font: 'small', color: P.inkSoft, align: 'right' });
+    y = py + 24;
+    drawText(c, `${WEATHER_NAME[w.weather.kind]} · 평균 ${Math.round(w.weather.meanTemp)}°C`, x, y, { font: 'small' });
+    drawText(c, `내일 ${WEATHER_NAME[w.forecast.kind]}`, x + cw, y, { font: 'small', color: P.inkSoft, align: 'right' });
+    y += 13;
+    const now = w.minute(true);
+    const ship = w.shipPresent
+      ? now < SHIP_DEPARTURE
+        ? `화물선 정박 중 · ${Math.floor(SHIP_DEPARTURE / 60)}:00 출항`
+        : '화물선 출항 준비 중'
+      : '화물선은 떠났어요 · 내일 아침 입항';
+    drawText(c, ship, x, y, { font: 'small', color: w.shipPresent ? P.tealDark : P.inkSoft });
+    y += 17;
+    rule(ui, x, y, cw);
+    y += 6;
+
+    // The fields at a glance.
+    let crops = 0;
+    let ready = 0;
+    let thirsty = 0;
+    for (const soil of Object.values(w.soil)) {
+      const cr = soil.crop;
+      if (!cr || cr.dead) continue;
+      crops++;
+      if (isReady(cr)) ready++;
+      else if (!cr.dormant && soil.dayMax < WATER_THRESHOLD[getCrop(cr.id).water]) thirsty++;
+    }
+    drawText(c, '밭', x, y, { font: 'small', color: P.inkSoft });
+    y += 13;
+    if (!crops) {
+      drawText(c, '심은 작물이 없어요.', x, y, { font: 'small', color: P.inkSoft });
+      y += 12;
+      drawText(c, '씨앗방에서 씨앗을 사 보세요.', x, y, { font: 'small', color: P.inkSoft });
+      y += 12;
+    } else {
+      drawText(c, `자라는 작물 ${crops}그루`, x, y, { font: 'small' });
+      y += 12;
+      drawText(c, ready ? `수확할 수 있어요: ${ready}` : '수확할 작물은 아직 없어요', x, y, { font: 'small', color: ready ? P.tealDark : P.inkSoft });
+      y += 12;
+      drawText(c, thirsty ? `목마른 작물: ${thirsty}` : '물은 넉넉해요', x, y, { font: 'small', color: thirsty ? P.coralDark : P.inkSoft });
+    }
+    y += 18;
+    rule(ui, x, y, cw);
+    y += 6;
+
+    // The board's request.
+    drawText(c, '게시판 의뢰', x, y, { font: 'small', color: P.inkSoft });
+    y += 13;
+    const req = w.state.request;
+    if (!req) drawText(c, '오늘은 올라온 의뢰가 없어요.', x, y, { font: 'small', color: P.inkSoft });
+    else {
+      const def = getItem(req.item);
+      c.fillStyle = P.paperLight;
+      c.fillRect(x, y, 20, 20);
+      c.drawImage(Sprites.icon(req.item), x + 2, y + 2);
+      const who = NPC_BY_ID.get(req.npc);
+      drawText(c, `${who?.name ?? ''}: ${def.name} ×${req.qty}`, x + 26, y, { font: 'small' });
+      const have = countItem(p.inv, req.item);
+      drawText(
+        c,
+        req.done ? '완료했어요!' : `보상 ${formatGold(req.reward)} · 가진 수량 ${Math.min(have, req.qty)}/${req.qty}`,
+        x + 26,
+        y + 11,
+        { font: 'small', color: req.done ? P.tealDark : have >= req.qty ? P.tealDark : P.inkSoft },
+      );
+    }
+    y += 30;
+    rule(ui, x, y, cw);
+    y += 6;
+    const sat = Object.entries(w.state.market).sort((a, b) => b[1] - a[1]).filter(([, v]) => v > 0.05).slice(0, 2);
+    drawText(c, '시세', x, y, { font: 'small', color: P.inkSoft });
+    y += 13;
+    if (!sat.length) drawText(c, '모든 작물이 제값을 받고 있어요.', x, y, { font: 'small', color: P.inkSoft });
+    else for (const [id, v] of sat) {
+      drawText(c, `${findCrop(id)?.name ?? id} 값이 ${Math.round(v * 100)}% 내렸어요`, x, y, { font: 'small', color: P.coralDark });
+      y += 12;
+    }
+  }
+
+  /** Left: everyone on the island with their hearts. Right: the one you picked — where they are and what they love. */
+  private drawPeople(ui: UI, { lx, rx, py, pw }: Page) {
+    const c = ui.ctx;
+    const w = this.world;
+    drawText(c, '섬 주민', lx + 10, py + 6, { font: 'bold' });
+    const minute = w.minute(true);
+    const poses = allNpcPoses(w.map, minute);
+    const today = w.clock.day;
+    NPCS.forEach((d, i) => {
+      const r = { x: lx + 6, y: py + 22 + i * 44, w: pw - 12, h: 42 };
+      const hot = ui.hover(r);
+      if (hot || this.who === i) {
+        c.fillStyle = this.who === i ? P.paperLight : 'rgba(255,255,255,0.35)';
+        c.fillRect(r.x, r.y, r.w, r.h);
+      }
+      if (ui.clicked(r) && this.who !== i) {
+        this.who = i;
+        this.audio.play('click', { volume: 0.4 });
+      }
+      bust(c, d.look, r.x + 4, r.y + 4, 16, 34);
+      const f = w.state.npcs[d.id];
+      drawText(c, d.name, r.x + 26, r.y + 3, { font: 'bold' });
+      drawText(c, d.role, r.x + 26 + measure(d.name, 'bold') + 6, r.y + 5, { font: 'small', color: P.inkSoft });
+      heartsRow(c, r.x + 26, r.y + 18, f?.points ?? 0);
+      const marks = [f?.talked === today ? '대화 ✓' : '대화', f?.gifted === today ? '선물 ✓' : '선물'];
+      drawText(c, marks.join(' · '), r.x + 26, r.y + 28, { font: 'small', color: P.inkSoft });
+    });
+
+    const d = NPCS[this.who];
+    const f = w.state.npcs[d.id];
+    const x = rx + 12;
+    const cw = pw - 24;
+    stage(ui, x, py + 10, 52, 72, Sprites.character(d.look).frame('down', -1, 'free', this.time % 3.4 > 3.25).img);
+    drawText(c, d.name, x + 62, py + 12, { font: 'title' });
+    drawText(c, d.role, x + 62, py + 32, { font: 'small', color: P.inkSoft });
+    heartsRow(c, x + 62, py + 48, f?.points ?? 0);
+    const pose = poses.find((q) => q.id === d.id);
+    if (pose) {
+      const zone = ZONE_NAME[w.map.zone[Math.floor(pose.y / TILE) * w.map.w + Math.floor(pose.x / TILE)] as keyof typeof ZONE_NAME] ?? '루미나 섬';
+      drawText(c, pose.moving ? `${zone} 쪽으로 걷는 중` : `지금 ${zone}에 있어요`, x + 62, py + 62, { font: 'small', color: P.tealDark });
+    }
+    let y = py + 92;
+    rule(ui, x, y, cw);
+    y += 6;
+    // Loved gifts reveal themselves as you grow closer (one per two hearts).
+    drawText(c, '좋아하는 선물', x, y, { font: 'small', color: P.inkSoft });
+    y += 13;
+    const h = Math.floor((f?.points ?? 0) / POINTS_PER_HEART);
+    d.loves.forEach((id, i) => {
+      const known = h >= i * 2 + 1;
+      const bx = x + i * 24;
+      c.fillStyle = P.ink;
+      c.fillRect(bx, y, 22, 22);
+      c.fillStyle = P.paperLight;
+      c.fillRect(bx + 1, y + 1, 20, 20);
+      if (known) {
+        c.drawImage(Sprites.icon(id), bx + 3, y + 3);
+        if (ui.hover({ x: bx, y, w: 22, h: 22 })) ui.tooltip([{ text: getItem(id).name, font: 'bold' }]);
+      } else drawText(c, '?', bx + 11, y + 6, { font: 'bold', color: P.inkSoft, align: 'center' });
+    });
+    y += 30;
+    const next = d.loves.findIndex((_, i) => h < i * 2 + 1);
+    if (next >= 0) drawText(c, `♥ ${next * 2 + 1}개가 되면 하나 더 알게 돼요.`, x, y, { font: 'small', color: P.inkSoft });
+    y += 16;
+    rule(ui, x, y, cw);
+    y += 6;
+    drawText(c, '좋아하는 것', x, y, { font: 'small', color: P.inkSoft });
+    y += 13;
+    const liked = h >= 3 ? d.likes.slice(0, 5).map((id) => getItem(id).name).join(', ') : '조금 더 친해지면 알 수 있어요.';
+    for (const line of wrap(liked, cw, 'small')) {
+      drawText(c, line, x, y, { font: 'small', color: h >= 3 ? P.ink : P.inkSoft });
+      y += 12;
+    }
+    y += 4;
+    wrap('하루에 한 번씩 말을 걸고(F) 선물을 주면 친해져요.', cw, 'small').forEach((line, i) => drawText(c, line, x, py + 230 + i * 12, { font: 'small', color: P.inkSoft }));
   }
 
   private drawDex(ui: UI, { lx, rx, py, pw }: { lx: number; rx: number; py: number; pw: number; ph: number }) {
@@ -354,147 +501,16 @@ export class JournalPanel implements Panel {
     }
   }
 
-  private drawMap(ui: UI, x: number, y: number, w: number, h: number) {
-    const c = ui.ctx;
-    const map = this.world.map;
-    const img = minimap(map);
-    // A separate paper card laid over the book, so the spine never cuts the island in half.
-    const cw = img.width + 20;
-    const ch = img.height + 34;
-    const kx = Math.round(x + (w - cw) / 2);
-    const ky = Math.round(y + (h - ch) / 2) - 2;
-    c.fillStyle = 'rgba(40,30,20,0.25)';
-    c.fillRect(kx + 3, ky + 3, cw, ch);
-    ui.inset({ x: kx, y: ky, w: cw, h: ch }, P.paperLight);
-    const mx = kx + 10;
-    const my = ky + 24;
-    drawText(c, '루미나 섬 지도', kx + 10, ky + 6, { font: 'bold' });
-    drawText(c, `${formatDate(this.world.clock.day)}`, kx + cw - 10, ky + 8, { font: 'tiny', color: P.inkSoft, align: 'right' });
-    c.fillStyle = P.ink;
-    c.fillRect(mx - 1, my - 1, img.width + 2, img.height + 2);
-    c.drawImage(img, mx, my);
-
-    // Landmark glyphs.
-    const glyph = (tx: number, ty: number, color: string, shape: 'dot' | 'tri' | 'sq') => {
-      const gx = mx + tx;
-      const gy = my + ty;
-      c.fillStyle = P.ink;
-      if (shape === 'tri') {
-        c.fillRect(gx - 2, gy + 1, 5, 1);
-        c.fillRect(gx - 1, gy, 3, 1);
-        c.fillRect(gx, gy - 1, 1, 1);
-        c.fillStyle = color;
-        c.fillRect(gx - 1, gy + 1, 3, 1);
-        c.fillRect(gx, gy, 1, 1);
-      } else {
-        c.fillRect(gx - 2, gy - 2, 5, 5);
-        c.fillStyle = color;
-        c.fillRect(gx - 1, gy - 1, 3, 3);
-      }
-    };
-    for (const o of map.objects) {
-      if (o.kind === 'tent') glyph(o.x + 1, o.y + 1, '#e07a3a', 'tri');
-      else if (o.kind === 'shrine') glyph(o.x + 1, o.y, '#c8c0b0', 'sq');
-      else if (o.kind === 'gazebo') glyph(o.x + 2, o.y, '#f4efe6', 'tri');
-      else if (o.kind === 'tidepool') glyph(o.x + 1, o.y, '#5ab0b8', 'dot');
-    }
-    const f = map.falls[0];
-    if (f !== undefined) glyph(f % map.w, Math.floor(f / map.w), '#e6f7f6', 'dot');
-
-    // Labels, placed so they never overlap one another.
-    const taken: Array<{ x: number; y: number; w: number; h: number }> = [];
-    const label = (text: string, tx: number, ty: number, font: 'small' | 'tiny' = 'tiny') => {
-      const lw = measure(text, font) + 2;
-      const lh = font === 'small' ? 11 : 9;
-      for (const [ox, oy] of [
-        [0, -lh - 2],
-        [0, 4],
-        [-lw / 2 - 4, -lh / 2],
-        [lw / 2 + 4, -lh / 2],
-        [0, -2 * lh - 2],
-      ]) {
-        const r = { x: Math.round(mx + tx + ox - lw / 2), y: Math.round(my + ty + oy), w: lw, h: lh };
-        if (taken.some((q) => r.x < q.x + q.w && q.x < r.x + r.w && r.y < q.y + q.h && q.y < r.y + r.h)) continue;
-        taken.push(r);
-        drawText(c, text, r.x + 1, r.y, { font, color: P.ink, outline: P.paperLight });
-        return;
-      }
-    };
-    const home = map.buildings.find((b) => b.kind === 'house')!;
-    label('나의 집', home.x + home.w / 2, home.y, 'small');
-    label('마을 광장', map.plaza.x + map.plaza.w / 2, map.plaza.y + map.plaza.h / 2, 'small');
-    label('항구', map.pierEnd.x, map.pierEnd.y + 2);
-    label('등대', map.lighthouse.x + 1, map.lighthouse.y);
-    for (const [z, name] of Object.entries(ZONE_NAME)) {
-      const id = Number(z);
-      if (id < 4 || id === 7) continue;
-      const cen = zoneCentre(map, id);
-      if (cen) label(name, cen.x, cen.y);
-    }
-
-    // Villagers (small coloured pins) and you (blinking).
-    const minute = this.world.minute(true);
-    const poses = allNpcPoses(map, minute);
-    for (const n of poses) {
-      const def = NPC_BY_ID.get(n.id)!;
-      const px = mx + Math.floor(n.x / TILE);
-      const py = my + Math.floor(n.y / TILE) - 1;
-      c.fillStyle = P.ink;
-      c.fillRect(px - 1, py - 1, 3, 3);
-      c.fillStyle = CLOTH_COLORS[def.look.topColor];
-      c.fillRect(px, py, 1, 1);
-    }
-    const p = this.world.self;
-    const ppx = mx + Math.floor(p.x / TILE);
-    const ppy = my + Math.floor(p.y / TILE) - 1;
-    if (Math.floor(this.time * 3) % 3 !== 0) {
-      c.fillStyle = P.ink;
-      c.fillRect(ppx - 2, ppy - 2, 5, 5);
-      c.fillStyle = P.coral;
-      c.fillRect(ppx - 1, ppy - 1, 3, 3);
-      c.fillStyle = P.white;
-      c.fillRect(ppx, ppy, 1, 1);
-    }
-
-    // Hover: where is this, and who is here?
-    const hx = ui.input.mouseX - mx;
-    const hy = ui.input.mouseY - my;
-    if (hx >= 0 && hy >= 0 && hx < img.width && hy < img.height) {
-      const lines: Array<{ text: string; font?: 'small' | 'bold'; color?: string }> = [];
-      const zid = map.zone[hy * map.w + hx] as keyof typeof ZONE_NAME;
-      lines.push({ text: ZONE_NAME[zid] ?? '루미나 섬', font: 'bold' });
-      for (const n of poses) if (Math.abs(n.x / TILE - hx) < 3 && Math.abs(n.y / TILE - hy) < 3) lines.push({ text: NPC_BY_ID.get(n.id)!.name, font: 'small', color: P.tealDark });
-      if (Math.abs(p.x / TILE - hx) < 3 && Math.abs(p.y / TILE - hy) < 3) lines.push({ text: '현재 위치', font: 'small', color: P.coralDark });
-      ui.tooltip(lines);
-    }
-    // Legend.
-    const ly = ky + ch - 13;
-    let lx = kx + 10;
-    c.fillStyle = P.coral;
-    c.fillRect(lx, ly + 3, 3, 3);
-    lx += drawText(c, '나', lx + 5, ly, { font: 'tiny', color: P.inkSoft }) + 12;
-    c.fillStyle = P.tealDark;
-    c.fillRect(lx, ly + 3, 3, 3);
-    lx += drawText(c, '주민', lx + 5, ly, { font: 'tiny', color: P.inkSoft }) + 12;
-    drawText(c, '마우스를 올리면 지역 이름이 보여요', kx + cw - 10, ly, { font: 'tiny', color: P.inkSoft, align: 'right' });
-  }
 }
 
-const zoneCentres = new Map<number, { x: number; y: number } | null>();
-function zoneCentre(map: WorldMap, id: number): { x: number; y: number } | null {
-  if (zoneCentres.has(id)) return zoneCentres.get(id)!;
-  let sx = 0;
-  let sy = 0;
-  let n = 0;
-  for (let i = 0; i < map.zone.length; i++)
-    if (map.zone[i] === id) {
-      sx += i % map.w;
-      sy += Math.floor(i / map.w);
-      n++;
-    }
-  const c = n ? { x: Math.round(sx / n), y: Math.round(sy / n) } : null;
-  zoneCentres.set(id, c);
-  return c;
+/** Head and shoulders of a character, cut from its idle frame at 1×. */
+function bust(ctx: CanvasRenderingContext2D, look: Appearance, x: number, y: number, w: number, h: number) {
+  const img = Sprites.character(look).frame('down', -1).img;
+  ctx.fillStyle = P.ink;
+  ctx.fillRect(x - 1, y - 1, w + 2, h + 2);
+  ctx.fillStyle = '#bcd8e8';
+  ctx.fillRect(x, y, w, h);
+  ctx.drawImage(img, 0, 0, img.width, Math.min(img.height, h), x + Math.round((w - img.width) / 2), y + 1, img.width, Math.min(img.height, h));
 }
 
 // ───────────────────────────── Shop ─────────────────────────────
@@ -876,7 +892,7 @@ export class PauseMenu implements Panel {
         this.audio.applyVolumes();
       }
     });
-    const help = ['이동 WASD · 도구 좌클릭/Space', '상호작용 우클릭/E · 일지 Tab · 지도 M'];
+    const help = ['이동 WASD · 도구 좌클릭/Space · 달리기 Shift', '상호작용 우클릭/F · 가방 E · 일지 Tab · 지도 M'];
     help.forEach((h, i) => drawText(c, h, x + W / 2, y + 150 + i * 11, { font: 'small', color: P.inkSoft, align: 'center' }));
     if (ui.button({ x: x + 20, y: y + H - 32, w: W - 40, h: 22 }, '저장하고 타이틀로')) this.onQuit();
   }

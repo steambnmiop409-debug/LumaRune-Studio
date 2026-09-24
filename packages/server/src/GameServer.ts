@@ -14,6 +14,7 @@ import {
   craft,
   chestMove,
   sortBackpack,
+  splitStack,
   applyPrecipitationHour,
   buy,
   createPlayer,
@@ -46,6 +47,9 @@ import {
   type WorldState,
 } from '@lumina/core';
 import { SAVE_SLOTS, slotInfo, type SaveStore } from './persistence/SaveStore';
+
+/** Real time between autosaves while anything is happening. */
+const AUTOSAVE_MS = 30_000;
 
 /** A connected client, whatever the transport (worker postMessage, WebSocket, test harness). */
 export interface ClientLink {
@@ -91,6 +95,9 @@ export class GameServer {
   private dirtyDebris = false;
   private dirtyPlayers = new Set<string>();
   private saving: Promise<void> = Promise.resolve();
+  /** Real milliseconds since the last save, and whether anything happened since. */
+  private sinceSave = 0;
+  private changed = false;
 
   constructor(private opts: GameServerOptions) {}
 
@@ -129,6 +136,11 @@ export class GameServer {
       }
       const p = this.playerOf(session);
       if (!p || !this.state || !this.map) return;
+      if (msg.t === 'save') {
+        await this.persist();
+        return;
+      }
+      if (msg.t !== 'pause') this.changed = true;
       this.onPlayerMessage(session, p, msg);
       this.flush();
     } catch (err) {
@@ -245,6 +257,12 @@ export class GameServer {
         fail(deliverRequest(ctx, p));
         this.dirtySocial = true;
         break;
+      case 'split':
+        if (Number.isInteger(msg.from) && Number.isInteger(msg.to) && msg.from >= 0 && msg.to >= 0 && msg.from < INVENTORY_SIZE && msg.to < INVENTORY_SIZE) {
+          splitStack(p.inv, msg.from, msg.to, msg.qty | 0);
+          this.dirtyPlayers.add(p.id);
+        }
+        break;
       case 'sort':
         sortBackpack(p.inv);
         this.dirtyPlayers.add(p.id);
@@ -275,6 +293,8 @@ export class GameServer {
         break;
       case 'pause':
         session.paused = !!msg.on;
+        // Opening a menu is a natural moment to save.
+        if (msg.on && this.changed) void this.persist();
         break;
       case 'debug':
         if (this.opts.debug) this.debug(p, msg.cmd, msg.arg);
@@ -383,6 +403,7 @@ export class GameServer {
     const active = [...this.sessions.values()].filter((s) => s.playerId);
     const paused = active.length > 0 && active.every((s) => s.paused);
     if (!paused) {
+      this.changed = true;
       this.acc += dtMs * this.timeScale;
       let guard = 0;
       while (this.acc >= MS_PER_GAME_MINUTE && guard++ < 2000) {
@@ -396,6 +417,9 @@ export class GameServer {
       this.sendTick();
     }
     this.flush();
+    // Autosave: never lose more than half a minute of play to a crash or a closed window.
+    this.sinceSave += dtMs;
+    if (this.sinceSave >= AUTOSAVE_MS && this.changed) void this.persist();
   }
 
   private stepMinute() {
@@ -522,7 +546,18 @@ export class GameServer {
     this.state.rngState = this.rng.state;
     const file = makeSave(JSON.parse(JSON.stringify(this.state)));
     const slot = this.slot;
-    this.saving = this.saving.then(() => this.opts.store.save(slot, file)).then(() => this.emit({ t: 'saved' }, 'all')).catch(() => {});
+    this.sinceSave = 0;
+    this.changed = false;
+    this.saving = this.saving
+      .then(() => this.opts.store.save(slot, file))
+      .then(
+        () => this.emit({ t: 'saved', ok: true }, 'all'),
+        () => {
+          this.changed = true;
+          this.emit({ t: 'saved', ok: false }, 'all');
+        },
+      )
+      .then(() => this.flush());
     return this.saving;
   }
 }

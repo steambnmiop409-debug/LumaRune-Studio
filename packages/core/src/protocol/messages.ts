@@ -21,11 +21,15 @@ export type ClientMessage =
   | { t: 'interact'; tx: number; ty: number }
   | { t: 'select'; slot: number }
   | { t: 'swap'; a: number; b: number }
+  /** Move part of a stack to another slot. */
+  | { t: 'split'; from: number; to: number; qty: number }
   | { t: 'buy'; shop: ShopId; item: string; qty: number }
   | { t: 'pack'; slot: number; qty: number }
   | { t: 'sleep' }
   | { t: 'cancelSleep' }
   | { t: 'pause'; on: boolean }
+  /** Write the world to disk now (quitting, the window closing, the tab going to the background). */
+  | { t: 'save' }
   | { t: 'deliver' }
   | { t: 'sort' }
   | { t: 'craft'; recipe: string }
@@ -84,7 +88,8 @@ export type GameEvent =
   | { t: 'crafted'; item: string; qty: number }
   | { t: 'openCraft' }
   | { t: 'openChest'; id: number }
-  | { t: 'saved' }
+  /** A save finished (ok) or could not be written. */
+  | { t: 'saved'; ok: boolean }
   /** The player was moved to another place (mine floor or back to the island). */
   | { t: 'warp'; x: number; y: number; floor: number }
   /** The lift at the mine entrance: floors it can go to. */

@@ -20,7 +20,7 @@ export function heart(ctx: CanvasRenderingContext2D, x: number, y: number, fill:
     }
 }
 
-function heartsRow(ctx: CanvasRenderingContext2D, x: number, y: number, points: number) {
+export function heartsRow(ctx: CanvasRenderingContext2D, x: number, y: number, points: number) {
   const h = Math.min(MAX_HEARTS, Math.floor(points / POINTS_PER_HEART));
   for (let i = 0; i < MAX_HEARTS; i++) heart(ctx, x + i * 8, y, i < h ? 1 : 0);
 }

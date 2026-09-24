@@ -5,4 +5,6 @@ export interface Scene {
   exit?(): void;
   update(dt: number): void;
   render(ctx: CanvasRenderingContext2D): void;
+  /** Writes any unsaved progress to disk; resolves true once it's safely there. */
+  save?(): Promise<boolean>;
 }

@@ -19,7 +19,7 @@
     "appId": "studio.lumarune.luminaisle",
     "productName": "Lumina Isle",
     "directories": { "output": "release" },
-    "files": ["main.cjs", { "from": "../client/dist", "to": "game" }],
+    "files": ["main.cjs", "preload.cjs", "files.cjs", { "from": "../client/dist", "to": "game" }],
     "win": { "target": ["nsis", "portable"] },
     "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true },
     "mac": { "target": "dmg", "category": "public.app-category.simulation-games" },
