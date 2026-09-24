@@ -466,7 +466,20 @@ export class WorldView {
     for (const pl of input.players) {
       const sheet = Sprites.character(pl.look);
       const frame = pl.moving ? Math.floor(pl.animT * 10) % 6 : 0;
-      const img = pl.moving ? sheet.walk[pl.dir][frame] : pl.blink ? sheet.blink[pl.dir] : sheet.idle[pl.dir];
+      const breathing = Math.floor((this.time + pl.x * 0.01) / 0.9) % 2 === 1;
+      const img = pl.swing
+        ? pl.swing.t < 0.35
+          ? sheet.raise[pl.dir]
+          : sheet.strike[pl.dir]
+        : pl.carrying > 0
+          ? sheet.carry[pl.dir][pl.moving ? frame : 0]
+          : pl.moving
+            ? sheet.walk[pl.dir][frame]
+            : pl.blink
+              ? sheet.blink[pl.dir]
+              : breathing
+                ? sheet.breathe[pl.dir]
+                : sheet.idle[pl.dir];
       const px = Math.round(pl.x - CHAR_W / 2 - cx);
       const py = Math.round(pl.y - CHAR_H + 1 - cy);
       shadow(pl.x, pl.y, 5, 1.8);

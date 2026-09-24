@@ -1,6 +1,6 @@
 import { BOTTOM_COLORS, CLOTH_COLORS, EYE_COLORS, HAIR_COLORS, type Appearance, type Dir } from '@lumina/core';
 import { Pix } from '../Pix';
-import { light, mix, shade } from '../palette';
+import { light, mix, rgbToHex, shade, unpack } from '../palette';
 import {
   HAIR_STYLES,
   HATS_T,
@@ -123,43 +123,113 @@ const SIDE_ARM = [-1, -1, 0, 1, 1, 0];
  * Composes one 16×32 frame from the layered templates.
  * `frame` -1 = idle; 0..5 = walk cycle (head bob on the down beats).
  */
-export function characterFrame(a: Appearance, dir: Dir, frame: number, blink = false): HTMLCanvasElement {
+export type Pose = 'walk' | 'idle' | 'breathe' | 'raise' | 'strike' | 'carry';
+
+/** Thick 2px limb from (x0,y0) to (x1,y1): lit edge + shaded edge + dark outline, hand at the end. */
+function limb(p: Pix, pal: Record<string, string>, x0: number, y0: number, x1: number, y1: number, sleeveRows: number, lit: boolean) {
+  const steps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0), 1);
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const x = Math.round(x0 + (x1 - x0) * t);
+    const y = Math.round(y0 + (y1 - y0) * t);
+    const sleeve = i < sleeveRows;
+    for (const [dx, dy] of [[-1, 0], [2, 0], [0, -1], [1, -1], [0, 2], [1, 2]]) if (!p.opaque(x + dx, y + dy)) p.set(x + dx, y + dy, sleeve ? pal.Y : pal.O);
+    p.set(x, y, sleeve ? (lit ? pal.u : pal.T) : lit ? pal.S : pal.s);
+    p.set(x + 1, y, sleeve ? pal.t : pal.s);
+    p.set(x, y + 1, sleeve ? pal.T : pal.S);
+    p.set(x + 1, y + 1, sleeve ? pal.t : pal.s);
+  }
+  p.set(Math.round(x1), Math.round(y1), pal.L);
+}
+
+/** Arms for action poses, drawn over the torso. */
+function poseArms(p: Pix, pal: Record<string, string>, d: Dir, pose: Pose, bob: number, longSleeve: boolean) {
+  const sl = longSleeve ? 6 : 2;
+  const sy = 19 + bob;
+  if (d === 'right') {
+    if (pose === 'raise') limb(p, pal, 7, sy, 4, 11 + bob, sl, true);
+    else if (pose === 'strike') limb(p, pal, 7, sy, 13, 22 + bob, sl, true);
+    else limb(p, pal, 7, sy, 9, 11 + bob, sl, true);
+    return;
+  }
+  if (pose === 'raise' || pose === 'carry') {
+    limb(p, pal, 3, sy, 2, (pose === 'carry' ? 10 : 12) + bob, sl, d === 'down');
+    limb(p, pal, 12, sy, 13, (pose === 'carry' ? 10 : 12) + bob, sl, d !== 'down');
+  } else {
+    limb(p, pal, 3, sy, 6, 24 + bob, sl, d === 'down');
+    limb(p, pal, 12, sy, 9, 24 + bob, sl, d !== 'down');
+  }
+}
+
+/**
+ * Selective outline ("sel-out"): outline pixels on the lit top-left rim take a deep tone of the
+ * colour they border instead of the dark line, which softens the silhouette like hand-shaded sprites.
+ */
+function selOut(p: Pix) {
+  const src = p.data.slice();
+  const at = (x: number, y: number) => (x < 0 || y < 0 || x >= p.w || y >= p.h ? 0 : src[y * p.w + x]);
+  const lum = (c: number) => ((c & 255) * 0.3 + ((c >>> 8) & 255) * 0.59 + ((c >>> 16) & 255) * 0.11) / 255;
+  for (let y = 0; y < p.h; y++)
+    for (let x = 0; x < p.w; x++) {
+      const c = at(x, y);
+      if (!(c >>> 24) || lum(c) > 0.3) continue;
+      const openUp = !(at(x, y - 1) >>> 24);
+      const openLeft = !(at(x - 1, y) >>> 24);
+      if (!openUp && !openLeft) continue;
+      const inner = openUp ? at(x, y + 1) : at(x + 1, y);
+      if (!(inner >>> 24) || lum(inner) < 0.3) continue;
+      const [r, g, b] = unpack(inner);
+      p.set(x, y, shade(rgbToHex([r, g, b]), 2));
+    }
+}
+
+/**
+ * Composes one 16×32 frame from the layered templates.
+ * `frame` 0..5 = walk cycle (head bob on the down beats); `pose` selects idle/action poses.
+ */
+export function characterFrame(a: Appearance, dir: Dir, frame: number, blink = false, pose: Pose = frame >= 0 ? 'walk' : 'idle'): HTMLCanvasElement {
   const p = new Pix(CHAR_W, CHAR_H);
   const pal = palette(a);
   const d: Dir = dir === 'left' ? 'right' : dir;
-  const walking = frame >= 0;
-  const bob = walking ? BOB[frame] : 0;
+  const walking = pose === 'walk' || (pose === 'carry' && frame >= 0);
+  const f = Math.max(0, frame);
+  const bob = walking ? BOB[f] : pose === 'breathe' ? 1 : pose === 'strike' ? 1 : 0;
   const hair = HAIR_STYLES[a.hairStyle] ?? HAIR_STYLES[0];
   const hat = HATS_T[a.hat];
   const skirt = a.top === 3;
   const longSleeve = a.top === 2;
+  const action = pose === 'raise' || pose === 'strike' || pose === 'carry';
 
   if (d === 'down') {
     paint(p, hair.down.back, pal, bob);
-    paint(p, legsDown(walking ? STRIDE[frame] : 0, skirt), pal);
+    paint(p, legsDown(walking ? STRIDE[f] : 0, skirt), pal);
     paint(p, TORSO_DOWN[a.top], pal, bob);
-    paint(p, armsDown(walking ? -STRIDE[frame] : 0, longSleeve, false), pal, bob);
+    if (!action) paint(p, armsDown(walking ? -STRIDE[f] : 0, longSleeve, false), pal, bob);
     paint(p, HEAD_DOWN, pal, bob);
     if (blink) paint(p, HEAD_DOWN_BLINK, pal, bob);
     paint(p, hair.down.front, pal, bob);
     if (hat) paint(p, hat.down, pal, bob);
+    if (action) poseArms(p, pal, d, pose, bob, longSleeve);
   } else if (d === 'up') {
-    paint(p, legsDown(walking ? -STRIDE[frame] : 0, skirt), pal);
+    paint(p, legsDown(walking ? -STRIDE[f] : 0, skirt), pal);
     paint(p, TORSO_UP[a.top], pal, bob);
-    paint(p, armsDown(walking ? STRIDE[frame] : 0, longSleeve, true), pal, bob);
+    if (!action) paint(p, armsDown(walking ? STRIDE[f] : 0, longSleeve, true), pal, bob);
     paint(p, HEAD_UP, pal, bob);
     paint(p, hair.up.front, pal, bob);
     if (hat) paint(p, hat.up, pal, bob);
+    if (action) poseArms(p, pal, d, pose, bob, longSleeve);
   } else {
     paint(p, hair.right.back, pal, bob);
-    paint(p, legsRight(walking ? SIDE_POSE[frame] : 0, skirt), pal);
+    paint(p, legsRight(walking ? SIDE_POSE[f] : pose === 'strike' ? 1 : 0, skirt), pal);
     paint(p, TORSO_RIGHT[a.top], pal, bob);
-    armSide(p, pal, walking ? SIDE_ARM[frame] : 0, longSleeve, bob);
+    if (!action) armSide(p, pal, walking ? SIDE_ARM[f] : 0, longSleeve, bob);
     paint(p, HEAD_RIGHT, pal, bob);
     if (blink) paint(p, HEAD_RIGHT_BLINK, pal, bob);
     paint(p, hair.right.front, pal, bob);
     if (hat) paint(p, hat.right, pal, bob);
+    if (action) poseArms(p, pal, d, pose, bob, longSleeve);
   }
+  selOut(p);
 
   const canvas = p.toCanvas();
   if (dir !== 'left') return canvas;
@@ -174,17 +244,25 @@ export function characterFrame(a: Appearance, dir: Dir, frame: number, blink = f
 
 export interface CharacterSheet {
   walk: Record<Dir, HTMLCanvasElement[]>;
+  carry: Record<Dir, HTMLCanvasElement[]>;
   idle: Record<Dir, HTMLCanvasElement>;
+  breathe: Record<Dir, HTMLCanvasElement>;
   blink: Record<Dir, HTMLCanvasElement>;
+  raise: Record<Dir, HTMLCanvasElement>;
+  strike: Record<Dir, HTMLCanvasElement>;
 }
 
 export function characterSheet(a: Appearance): CharacterSheet {
   const dirs: Dir[] = ['down', 'up', 'left', 'right'];
-  const sheet: CharacterSheet = { walk: {} as CharacterSheet['walk'], idle: {} as CharacterSheet['idle'], blink: {} as CharacterSheet['blink'] };
+  const sheet = { walk: {}, carry: {}, idle: {}, breathe: {}, blink: {}, raise: {}, strike: {} } as CharacterSheet;
   for (const dir of dirs) {
     sheet.walk[dir] = Array.from({ length: WALK_FRAMES }, (_, f) => characterFrame(a, dir, f));
+    sheet.carry[dir] = Array.from({ length: WALK_FRAMES }, (_, f) => characterFrame(a, dir, f, false, 'carry'));
     sheet.idle[dir] = characterFrame(a, dir, -1);
+    sheet.breathe[dir] = characterFrame(a, dir, -1, false, 'breathe');
     sheet.blink[dir] = characterFrame(a, dir, -1, true);
+    sheet.raise[dir] = characterFrame(a, dir, -1, false, 'raise');
+    sheet.strike[dir] = characterFrame(a, dir, -1, false, 'strike');
   }
   return sheet;
 }

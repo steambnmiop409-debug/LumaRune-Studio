@@ -93,7 +93,7 @@ export async function sheet(): Promise<void> {
     looks[5] = { ...looks[5], hairStyle: 0, top: 0, hat: 0 };
     looks.forEach((look, n) => {
       const sh = Sprites.character(look);
-      const frames = page === '5' ? sh.walk.down.concat(sh.walk.right) : [...dirs.map((d) => sh.idle[d]), sh.blink.down, sh.walk.right[0], sh.walk.right[2]];
+      const frames = page === '5' ? sh.walk.down.concat(sh.walk.right) : [...dirs.map((d) => sh.idle[d]), sh.breathe.down, sh.raise.down, sh.strike.down, sh.raise.right, sh.strike.right, sh.carry.down[0], sh.carry.right[1], sh.raise.up];
       frames.slice(0, 12).forEach((f, i) => ctx.drawImage(f, 4 + (i % 12) * 36, 2 + n * 66, 32, 64));
     });
   }
