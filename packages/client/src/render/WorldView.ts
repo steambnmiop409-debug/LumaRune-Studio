@@ -101,6 +101,14 @@ export class WorldView {
   private warmAt = 0;
   private warmKey = '';
 
+  /** Grass (or snow) over the foot of something standing in the turf, so it sits in the ground. */
+  private footing(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, seed: number, season: number, cx: number, cy: number) {
+    const t = this.map.terrain[Math.floor((y - 1) / TILE) * this.map.w + Math.floor(x / TILE)];
+    if (t !== Terrain.Grass && t !== Terrain.Forest && t !== Terrain.Meadow) return;
+    const img = Sprites.skirt(Math.max(4, Math.round(w / 2) * 2), seed, season);
+    ctx.drawImage(img, Math.round(x - img.width / 2) - cx, Math.round(y) - 5 - cy);
+  }
+
   constructor(readonly map: WorldMap) {
     this.terrain = new TerrainRenderer(map);
     for (const o of map.objects) if (o.kind === 'fence') this.fences.add(o.y * map.w + o.x);
@@ -260,11 +268,13 @@ export class WorldView {
         else if (LANDMARKS.has(o.kind)) add(o.x, o.y, () => [0, 1, 2].map((f) => Sprites.landmark(o.kind, o.v, f)));
         else if (o.kind === 'bush') add(o.x, o.y, () => Sprites.bush(o.v, season));
         else if (o.kind === 'rock') add(o.x, o.y, () => Sprites.rock(o.v));
+        else if (o.kind === 'boulder') add(o.x, o.y, () => Sprites.boulder(o.v));
         else if (o.kind === 'flowers') add(o.x, o.y, () => [Sprites.flowers(o.v, 0), Sprites.flowers(o.v, 1)]);
         else if (o.kind === 'reeds') add(o.x, o.y, () => [Sprites.reeds(o.v, 0), Sprites.reeds(o.v, 1)]);
         else if (o.kind === 'flowerpot') add(o.x, o.y, () => Sprites.flowerpot(o.v));
         else if (DETAIL_KINDS.has(o.kind)) add(o.x, o.y, () => [Sprites.detail(o.kind, o.v, 0), Sprites.detail(o.kind, o.v, 1)]);
       }
+      for (const b of map.buildings) add(b.x + b.w / 2, b.y + b.h / 2, () => Sprites.building(b));
       for (const k of Object.keys(input.debris).map(Number)) add(k % map.w, Math.floor(k / map.w), () => [0, 1].map((f) => Sprites.debris(input.debris[k], k, f, season)));
       for (const k of Object.keys(input.nodes).map(Number)) add(k % map.w, Math.floor(k / map.w), () => Sprites.outcrop(input.nodes[k], k));
       for (const k of Object.keys(input.forage).map(Number)) add(k % map.w, Math.floor(k / map.w), () => Sprites.forage(input.forage[k]));
@@ -362,6 +372,7 @@ export class WorldView {
             if (behind) ctx.globalAlpha = 0.42;
             ctx.drawImage(img, 0, 0, img.width, tree.swayRows, sx + sway, sy, img.width, tree.swayRows);
             ctx.globalAlpha = 1;
+            this.footing(ctx, bx + 8 + jx, baseY + 1, 14, o.v, season, cx, cy);
           },
         });
         continue;
@@ -384,7 +395,13 @@ export class WorldView {
         const ix = bx + Math.floor((w - img.width) / 2) - cx;
         const iy = by + h - img.height + (o.kind === 'tidepool' ? 2 : o.kind === 'buoy' ? 3 : 0) + bob - cy;
         if (!flat && o.kind !== 'cave' && o.kind !== 'buoy') shadows.cast(img, ix, iy, by + h - 2 - cy);
-        drawables.push({ y: flat ? by : by + h - 2, draw: () => ctx.drawImage(img, ix, iy) });
+        drawables.push({
+          y: flat ? by : by + h - 2,
+          draw: () => {
+            ctx.drawImage(img, ix, iy);
+            if (!flat && o.kind !== 'buoy' && o.kind !== 'cave') this.footing(ctx, bx + w / 2, by + h, Math.min(img.width, w) - 6, o.v, season, cx, cy);
+          },
+        });
         if (o.kind === 'campfire') {
           lights.push({ x: bx + 8 - cx, y: by + 6 - cy, r: 70 + Math.sin(this.time * 9) * 4, color: '#ffb060', a: 0.95 });
           if (Math.random() < 0.08) this.particles.spawn({ x: bx + 8 + (Math.random() - 0.5) * 3, y: by + 2, vx: (Math.random() - 0.5) * 6 + input.weather.wind * 10, vy: -14, max: 1.8, color: '#9a9aa8' });
@@ -413,7 +430,13 @@ export class WorldView {
           const low = o.kind === 'pebbles' || o.kind === 'lilypad';
           if (o.kind === 'mushroom' && lit) lights.push({ x: bx + 8 - cx, y: by + 10 - cy, r: 12, color: '#8af0d0', a: 0.45 + Math.sin(this.time * 1.3 + o.x) * 0.15 });
           if (!low) shadows.cast(img, bx - cx, by + TILE - img.height - cy, by + 14 - cy, 0.8);
-          drawables.push({ y: low ? by : by + 9, draw: () => ctx.drawImage(img, bx - cx, by + TILE - img.height - cy) });
+          drawables.push({
+            y: low ? by : by + 9,
+            draw: () => {
+              ctx.drawImage(img, bx - cx, by + TILE - img.height - cy);
+              if (o.kind === 'mushroom') this.footing(ctx, bx + 8, by + TILE, 8, o.v, season, cx, cy);
+            },
+          });
           break;
         }
         case 'log':
@@ -437,7 +460,13 @@ export class WorldView {
             shadow(bx + w / 2, by + 14, w / 2 - 2, 2);
             if (o.kind !== 'boat') shadows.cast(img, bx + Math.floor((w - img.width) / 2) - cx, by + TILE - img.height - cy, by + 14 - cy);
           }
-          drawables.push({ y: flat ? by + 2 : by + 14, draw: () => ctx.drawImage(img, bx + Math.floor((w - img.width) / 2) - cx, by + TILE - img.height + (flat ? 1 : 0) - cy) });
+          drawables.push({
+            y: flat ? by + 2 : by + 14,
+            draw: () => {
+              ctx.drawImage(img, bx + Math.floor((w - img.width) / 2) - cx, by + TILE - img.height + (flat ? 1 : 0) - cy);
+              if (!flat && o.kind !== 'boat') this.footing(ctx, bx + w / 2, by + TILE, img.width - 6, o.v, season, cx, cy);
+            },
+          });
           if (o.kind === 'beehive' && Math.random() < 0.02 && !input.raining && this.dark < 0.3) this.particles.spawn({ x: bx + 8, y: by, vx: (Math.random() - 0.5) * 30, vy: -10, max: 1.5, color: '#f5d040' });
           break;
         }
@@ -446,14 +475,26 @@ export class WorldView {
           const mask = (this.fences.has(k - 1) ? 1 : 0) | (this.fences.has(k + 1) ? 2 : 0) | (this.fences.has(k - map.w) ? 4 : 0) | (this.fences.has(k + map.w) ? 8 : 0);
           const img = Sprites.fence(mask);
           shadows.cast(img, bx - cx, by + TILE - img.height - cy, by + 14 - cy);
-          drawables.push({ y: by + 12, draw: () => ctx.drawImage(img, bx - cx, by + TILE - img.height - cy) });
+          drawables.push({
+            y: by + 12,
+            draw: () => {
+              ctx.drawImage(img, bx - cx, by + TILE - img.height - cy);
+              this.footing(ctx, bx + 8, by + TILE, 10, o.x + o.y, season, cx, cy);
+            },
+          });
           break;
         }
         case 'lamp': {
           const img = Sprites.lamp(lit);
           shadow(bx + 8, by + 14, 4, 1.5);
           shadows.cast(img, bx + 2 - cx, by + TILE - img.height - cy, by + 14 - cy);
-          drawables.push({ y: by + 14, draw: () => ctx.drawImage(img, bx + 2 - cx, by + TILE - img.height - cy) });
+          drawables.push({
+            y: by + 14,
+            draw: () => {
+              ctx.drawImage(img, bx + 2 - cx, by + TILE - img.height - cy);
+              this.footing(ctx, bx + 8, by + TILE, 8, o.x, season, cx, cy);
+            },
+          });
           if (lit) lights.push({ x: bx + 8 - cx, y: by + TILE - 34 + 7 - cy, r: 48, color: '#ffcf80', a: 0.93 + Math.sin(this.time * 7.3 + o.x * 3.1) * 0.05 + Math.sin(this.time * 13 + o.y) * 0.02 });
           break;
         }
@@ -462,13 +503,34 @@ export class WorldView {
           drawables.push({ y: by + 30, draw: () => ctx.drawImage(img, bx - 1 - cx, by + 32 - img.height - cy) });
           break;
         }
+        case 'boulder': {
+          const img = Sprites.boulder(o.v);
+          const ix = bx + 16 - Math.floor(img.width / 2) - cx;
+          const iy = by + 2 * TILE - img.height + 1 - cy;
+          shadow(bx + 16, by + 30, 15, 3, 70);
+          shadows.cast(img, ix, iy, by + 30 - cy);
+          drawables.push({
+            y: by + 30,
+            draw: () => {
+              ctx.drawImage(img, ix, iy);
+              this.footing(ctx, bx + 16, by + 2 * TILE + 1, img.width - 8, o.v, season, cx, cy);
+            },
+          });
+          break;
+        }
         case 'bush':
         case 'rock':
         case 'stump': {
           const img = o.kind === 'bush' ? Sprites.bush(o.v, season) : o.kind === 'rock' ? Sprites.rock(o.v) : Sprites.stump();
           shadow(bx + 8, by + 14, 7, 2);
           shadows.cast(img, bx + 8 - Math.floor(img.width / 2) - cx, by + TILE - img.height + 1 - cy, by + 14 - cy);
-          drawables.push({ y: by + 14, draw: () => ctx.drawImage(img, bx + 8 - Math.floor(img.width / 2) - cx, by + TILE - img.height + 1 - cy) });
+          drawables.push({
+            y: by + 14,
+            draw: () => {
+              ctx.drawImage(img, bx + 8 - Math.floor(img.width / 2) - cx, by + TILE - img.height + 1 - cy);
+              this.footing(ctx, bx + 8, by + TILE + 1, img.width - 4, o.v, season, cx, cy);
+            },
+          });
           break;
         }
         case 'flowerpot':
@@ -490,7 +552,13 @@ export class WorldView {
           const img = Sprites.prop(kind);
           const w = (o.w ?? 1) * TILE;
           shadows.cast(img, bx + Math.floor((w - img.width) / 2) - cx, by + (o.h ?? 1) * TILE - img.height - cy, by + (o.h ?? 1) * TILE - 2 - cy);
-          drawables.push({ y: by + (o.h ?? 1) * TILE - 2, draw: () => ctx.drawImage(img, bx + Math.floor((w - img.width) / 2) - cx, by + (o.h ?? 1) * TILE - img.height - cy) });
+          drawables.push({
+            y: by + (o.h ?? 1) * TILE - 2,
+            draw: () => {
+              ctx.drawImage(img, bx + Math.floor((w - img.width) / 2) - cx, by + (o.h ?? 1) * TILE - img.height - cy);
+              this.footing(ctx, bx + w / 2, by + (o.h ?? 1) * TILE, img.width - 6, o.x * 7 + o.y, season, cx, cy);
+            },
+          });
         }
       }
     }
@@ -515,6 +583,7 @@ export class WorldView {
           ctx.drawImage(spr.img, sx - cx, sy - cy);
           if (season === 3) ctx.drawImage(spr.snow, sx - cx, sy - cy);
           ctx.globalAlpha = 1;
+          if (b.kind !== 'lighthouse') this.footing(ctx, sx + spr.img.width / 2, (b.y + b.h) * TILE, spr.img.width - 6, b.v, season, cx, cy);
           if (b.kind === 'windmill') {
             const sails = Sprites.sails(Math.floor(this.time * 3 * (0.4 + input.weather.wind)) % 12);
             ctx.drawImage(sails, sx + spr.img.width / 2 - 38 - cx, sy + 20 - 38 - cy);
@@ -600,9 +669,13 @@ export class WorldView {
       // Gentle sway for tall plants in the wind.
       const sway = step >= 5 && (def.form === 'stalk' || def.form === 'grain' || def.form === 'tall') ? Math.round(Math.sin(this.time * 1.8 + x * 0.9) * input.weather.wind * 1.2) : 0;
       if (step >= 3 || crop.dead) shadows.cast(img, sx, sy, ground - cy);
+      // The plant grows out of a little mound of earth: the mound behind, its near lip in front.
+      const mound = Sprites.cropMound(step <= 1 ? 0 : step <= 3 ? 1 : 2, (input.soil[k].moisture ?? 0) >= 30);
+      const mx = x * TILE + 8 - cx;
       drawables.push({
         y: y * TILE + 12,
         draw: () => {
+          ctx.drawImage(mound.back, mx - Math.floor(mound.back.width / 2), ground + 2 - mound.back.height - cy);
           if (prevImg) {
             ctx.globalAlpha = 1 - track!.t;
             ctx.drawImage(prevImg, sx, sy);
@@ -613,6 +686,7 @@ export class WorldView {
             ctx.drawImage(img, 0, 0, CROP_W, 22, sx + sway, sy, CROP_W, 22);
           } else ctx.drawImage(img, sx, sy);
           ctx.globalAlpha = 1;
+          ctx.drawImage(mound.front, mx - Math.floor(mound.front.width / 2), ground - cy);
         },
       });
     }
@@ -727,7 +801,13 @@ export class WorldView {
       const img = Sprites.debris(kind, k, frame, season);
       if (kind !== 'weed') shadow(dx + 8, dy + 13, 6, 1.8);
       else shadows.cast(img, dx - cx, dy + TILE - img.height - cy, dy + 14 - cy, 0.8);
-      drawables.push({ y: dy + (kind === 'weed' ? 9 : 12), draw: () => ctx.drawImage(img, dx - cx, dy + TILE - img.height - cy) });
+      drawables.push({
+        y: dy + (kind === 'weed' ? 9 : 12),
+        draw: () => {
+          ctx.drawImage(img, dx - cx, dy + TILE - img.height - cy);
+          if (kind !== 'weed') this.footing(ctx, dx + 8, dy + TILE - 1, 10, k, season, cx, cy);
+        },
+      });
     }
 
     // Forage: gentle glint so it reads as something to pick up.

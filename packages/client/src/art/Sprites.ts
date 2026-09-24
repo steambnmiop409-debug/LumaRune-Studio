@@ -30,7 +30,7 @@ import * as glass from './sprites/greenhouse';
 import { birch, broadleaf, cherry, conifer, shrub } from './sprites/foliage';
 import { Pix } from './Pix';
 import { pack as packColor } from './palette';
-import { flowers, palmTree, reeds, rock, stump, type SeasonLook, type TreeSprite } from './sprites/nature';
+import { boulder, flowers, palmTree, reeds, rock, stump, type SeasonLook, type TreeSprite } from './sprites/nature';
 import * as props from './sprites/props';
 import * as details from './sprites/details';
 import { shipSprite } from './sprites/ship';
@@ -136,6 +136,9 @@ class SpriteCache {
       return p.toCanvas();
     });
   }
+  boulder(v: number) {
+    return this.get(`boulder:${v}`, () => boulder(v));
+  }
   rock(v: number) {
     return this.get(`rock:${v}`, () => rock(v));
   }
@@ -229,6 +232,12 @@ class SpriteCache {
   }
   rainCover() {
     return this.get('raincover', props.rainCover);
+  }
+  cropMound(size: 0 | 1 | 2, wet: boolean) {
+    return this.get(`mound:${size}:${wet}`, () => props.cropMound(size, wet));
+  }
+  skirt(w: number, seed: number, season: number) {
+    return this.get(`skirt:${w}:${seed & 7}:${season}`, () => props.grassSkirt(w, seed & 7, season));
   }
   soil(mask: number, wet: boolean) {
     return this.get(`soil:${mask}:${wet}`, () => props.soilTile(mask, wet));

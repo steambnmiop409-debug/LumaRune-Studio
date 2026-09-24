@@ -13,17 +13,17 @@ import type { SeasonLook, TreeSprite } from './nature';
 export type Pal = [string, string, string, string, string, string];
 
 export const PALS: Record<string, Pal> = {
-  oakSpring: ['#f0fab0', '#c6ec7c', '#92d45c', '#62b24e', '#3f8c4a', '#2a6446'],
-  oakSummer: ['#e4f69a', '#aee066', '#78c250', '#4c9e46', '#327c46', '#215840'],
-  golden: ['#fbf6a0', '#e2ea6a', '#b8d24c', '#8ab240', '#5e8a3a', '#3e6036'],
+  oakSpring: ['#c4ee74', '#8ed052', '#62b040', '#459037', '#2f7031', '#1e4c2a'],
+  oakSummer: ['#b0e062', '#78c046', '#529e3a', '#3c8133', '#2a642e', '#1a4527'],
+  golden: ['#f6f08c', '#d8e05a', '#aec640', '#80a638', '#567e32', '#38582e'],
   autumnOrange: ['#ffe7a0', '#fbbf58', '#ee923e', '#d0683a', '#a44a38', '#6e3434'],
   autumnRed: ['#ffd0a0', '#f8986a', '#e0664a', '#bc4440', '#8c3040', '#5c2438'],
   autumnYellow: ['#fff6ac', '#f7de68', '#e2bb44', '#bf9438', '#8c6a32', '#5e482e'],
-  birch: ['#f2fab8', '#cceb88', '#9cd466', '#6eb656', '#4a8e4c', '#306644'],
+  birch: ['#d0f080', '#9ed45a', '#70b646', '#50983e', '#387838', '#24542f'],
   blossom: ['#fffafc', '#ffdce8', '#f8b8cf', '#e890b2', '#c06c90', '#86486c'],
-  pine: ['#c4ea8c', '#8acc6c', '#5ca85e', '#3f8656', '#2c664c', '#1f4a3e'],
+  pine: ['#a4d876', '#68b25c', '#448e50', '#2f7046', '#20543b', '#153a2e'],
   pineWinter: ['#ffffff', '#e8f0f8', '#7cae8c', '#4f8a6c', '#35684f', '#244a3e'],
-  bush: ['#dcf396', '#a6dc64', '#72bc4e', '#4a9a46', '#317844', '#20543e'],
+  bush: ['#b8e46e', '#82c44e', '#5aa440', '#408538', '#2c6631', '#1b4628'],
   bushAutumn: ['#ffe29a', '#f0b858', '#d88e40', '#b0683a', '#824a36', '#583430'],
 };
 
@@ -119,7 +119,8 @@ export function leafMass(p: Pix, masses: Mass[], pal: Pal, seed: number, speckle
       const crease = covered > 1 && fh < 0.45 ? 0.5 * (1 - fh / 0.45) : 0;
       const grad = ((y - minY) / Math.max(1, maxY - minY)) * 0.42;
       const v = 0.3 + diff * 0.66 + leaf * 0.85 - crease - grad + (hash2(x, y, seed + 1) - 0.5) * 0.08;
-      const t = v > 0.98 ? 0 : v > 0.76 ? 1 : v > 0.54 ? 2 : v > 0.3 ? 3 : v > 0.08 ? 4 : 5;
+      // Highlights stay rare so the canopy reads deep and rounded rather than washed out.
+      const t = v > 1.04 ? 0 : v > 0.84 ? 1 : v > 0.6 ? 2 : v > 0.36 ? 3 : v > 0.12 ? 4 : 5;
       tone[y * W + x] = t;
     }
   for (let y = 0; y < H; y++)

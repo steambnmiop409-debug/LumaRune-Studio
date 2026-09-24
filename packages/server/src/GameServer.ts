@@ -397,6 +397,18 @@ export class GameServer {
           this.dirtySoil.add(k);
         }
       this.dirtyDebris = true;
+    } else if (cmd === 'plots' && arg !== undefined) {
+      // Dev: an 8×4 bed of mixed crops at every stage, top-left tile arg (y * 1000 + x).
+      const ids = ['lettuce', 'potato', 'strawberry', 'tomato', 'corn', 'sunflower', 'carrot', 'pumpkin'];
+      for (let dy = 0; dy < 4; dy++)
+        for (let dx = 0; dx < 8; dx++) {
+          const k = (Math.floor(arg / 1000) + dy) * this.map!.w + (arg % 1000) + dx;
+          const id = ids[dx];
+          delete state.debris[k];
+          state.soil[k] = { ...newSoil(), moisture: dy % 2 ? 80 : 20, dayMax: 80, crop: { ...newCrop(id, 0), growth: (getCrop(id).growDays * (dy + 1)) / 4 } };
+          this.dirtySoil.add(k);
+        }
+      this.dirtyDebris = true;
     } else if (cmd === 'grow') {
       for (const s of Object.values(state.soil)) if (s.crop && !s.crop.dead) s.crop.growth = getCrop(s.crop.id).growDays;
       for (const k of Object.keys(state.soil)) this.dirtySoil.add(Number(k));

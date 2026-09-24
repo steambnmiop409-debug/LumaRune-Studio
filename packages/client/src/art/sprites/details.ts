@@ -6,21 +6,45 @@ import { clump } from './shading';
 /** Each detail takes `v` (the object's own seed) so every instance on the island is drawn differently. */
 const r = (v: number, k: number) => hash2(v, k, 4242);
 
+/**
+ * A bushy grass tuft: a fan of pointed blades springing from one root, each blade dark at the
+ * base and sunlit at the tip, the back blades a shade darker than the front ones, with a
+ * dark outline so it sits on the turf like a hand-drawn stamp. Frame 1 sways the tips.
+ */
 export function tallGrass(v: number, frame: number): HTMLCanvasElement {
-  const p = new Pix(16, 18);
-  const base = ['#6aa84e', '#78b458', '#5e9a48', '#86bc5e'][v % 4];
-  const blades = 5 + Math.floor(r(v, 1) * 5);
-  for (let i = 0; i < blades; i++) {
-    const x = 2 + Math.floor(r(v, i + 10) * 12);
-    const h = 5 + Math.floor(r(v, i + 20) * 10);
-    const bend = (r(v, i + 30) - 0.5) * 3 + (frame ? 1 : 0);
-    for (let k = 0; k < h; k++) {
-      const t = k / h;
-      const xx = Math.round(x + bend * t * t);
-      p.set(xx, 17 - k, t > 0.75 ? light(base, 1) : t < 0.3 ? shade(base, 1) : base);
-    }
-    if (r(v, i + 40) < 0.2) p.set(Math.round(x + bend), 17 - h, '#f4e8a0');
+  const p = new Pix(16, 16);
+  const pal = [
+    ['#b6e46a', '#84c64a', '#5ea43c', '#3e8032', '#285c2a'],
+    ['#c2e878', '#92cc52', '#68ac40', '#468836', '#2e622c'],
+    ['#a8dc62', '#78bc46', '#56993a', '#3a7830', '#245428'],
+  ][v % 3];
+  const n = 7 + Math.floor(r(v, 1) * 5);
+  const blades: Array<{ a: number; len: number; back: boolean }> = [];
+  for (let i = 0; i < n; i++) {
+    const k = n === 1 ? 0.5 : i / (n - 1);
+    blades.push({ a: (k - 0.5) * 2.3 + (r(v, i + 10) - 0.5) * 0.3, len: 7 + r(v, i + 20) * 5 - Math.abs(k - 0.5) * 4, back: i % 2 === 1 });
   }
+  // Back blades first, front blades over them.
+  blades.sort((x, y) => Number(y.back) - Number(x.back));
+  const root = 8;
+  for (const b of blades) {
+    const sway = frame ? 0.9 : 0;
+    for (let s = 0; s <= b.len; s++) {
+      const t = s / b.len;
+      // Blades curve outward as they rise.
+      const ang = b.a * (0.55 + t * 0.6);
+      const x = root + Math.sin(ang) * s + sway * t * t;
+      const y = 15 - Math.cos(ang) * s * 0.95;
+      const tone = t > 0.8 ? 0 : t > 0.5 ? 1 : t > 0.22 ? 2 : 3;
+      const c = pal[Math.min(4, tone + (b.back ? 1 : 0))];
+      p.set(Math.round(x), Math.round(y), c);
+      // Two pixels wide near the root.
+      if (t < 0.45) p.set(Math.round(x) + (b.a > 0 ? -1 : 1), Math.round(y), pal[Math.min(4, tone + 1)]);
+    }
+  }
+  // Dark root and outline on the sides and bottom.
+  for (let x = 5; x <= 11; x++) if (p.opaque(x, 15)) p.set(x, 15, pal[4]);
+  p.outline(pal[4], 'noTop');
   return p.toCanvas();
 }
 

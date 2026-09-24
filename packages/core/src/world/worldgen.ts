@@ -17,6 +17,7 @@ const SOLID_OBJECTS: ReadonlySet<ObjectKind> = new Set<ObjectKind>([
   'palm',
   'bush',
   'rock',
+  'boulder',
   'stump',
   'lamp',
   'fence',
@@ -989,6 +990,31 @@ export function generateWorld(seed: number = DEFAULT_WORLD_SEED): WorldMap {
         else if ((t === Terrain.Sand || t === Terrain.Path) && r < 0.018) objects.push({ kind: 'pebbles', x, y, v: Math.floor(hash2(x, y, seed + 93) * 1000) });
         else if (t === Terrain.Forest && r < 0.025) objects.push({ kind: 'mushroom', x, y, v: Math.floor(hash2(x, y, seed + 94) * 1000) });
         else if (t === Terrain.Forest && r > 0.996 && free(x, y, 2, 1)) addObject('log', x, y, 2, 1);
+      }
+    // Boulders: big landmarks that break up open ground — in stony fields, under the cliffs,
+    // now and then on the beach. Never on a path or hemming one in, and never crowded together.
+    const boulders: Array<[number, number]> = [];
+    for (let y = 3; y < H - 4; y++)
+      for (let x = 3; x < W - 4; x++) {
+        const r = hash2(x, y, seed + 131);
+        const t = T(x, y);
+        const z = zone[idx(x, y)];
+        if (z === Zone.Farm || z === Zone.Village) continue;
+        const underCliff = T(x, y - 1) === Terrain.Cliff || T(x + 1, y - 1) === Terrain.Cliff;
+        const stony = valueNoise(x / 9, y / 9, seed + 42) > 0.66;
+        const beach = t === Terrain.Sand && z === Zone.Beach;
+        const p = underCliff ? 0.1 : beach ? 0.006 : stony ? 0.03 : 0.0012;
+        if (r > p) continue;
+        let ok = true;
+        for (let yy = y - 1; yy < y + 3 && ok; yy++)
+          for (let xx = x - 1; xx < x + 3 && ok; xx++) {
+            const tt = T(xx, yy);
+            if (tt === Terrain.Path || tt === Terrain.Cobble || tt === Terrain.Stairs || tt === Terrain.Dock || tt === Terrain.Bridge || isWater(tt)) ok = false;
+            if (xx >= x && xx < x + 2 && yy >= y && yy < y + 2 && (tt === Terrain.Cliff || reserved[idx(xx, yy)])) ok = false;
+          }
+        if (!ok || !free(x, y, 2, 2) || boulders.some(([bx, by]) => Math.abs(bx - x) < 6 && Math.abs(by - y) < 6)) continue;
+        addObject('boulder', x, y, 2, 2);
+        boulders.push([x, y]);
       }
     // Rubble and pebbles at the foot of the cliffs.
     for (let y = 2; y < H - 2; y++)

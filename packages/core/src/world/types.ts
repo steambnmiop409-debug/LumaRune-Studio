@@ -8,6 +8,8 @@ export type ObjectKind =
   | 'palm'
   | 'bush'
   | 'rock'
+  /** A big weathered boulder, 2×2 tiles. */
+  | 'boulder'
   | 'stump'
   | 'lamp'
   | 'fence'

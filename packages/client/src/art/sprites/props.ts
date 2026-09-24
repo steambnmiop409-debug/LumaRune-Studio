@@ -20,34 +20,50 @@ export function lamp(lit: boolean): HTMLCanvasElement {
   return p.toCanvas();
 }
 
-/** Fence tile. `mask` bits: 1 = left, 2 = right, 4 = up, 8 = down neighbours. */
+/**
+ * Fence tile. `mask` bits: 1 = left, 2 = right, 4 = up, 8 = down neighbours.
+ * Chunky split-wood posts with a pointed cap and grain, thick rails with a lit top edge and
+ * a shadowed underside, all under one dark outline. A run going down the screen shows its
+ * rails end-on: a narrow plank linking each post to the next.
+ */
 export function fence(mask: number): HTMLCanvasElement {
-  const p = new Pix(16, 20);
-  const wood = '#b8875a';
-  const dark = shade(wood, 2);
-  const lite = light(wood, 1);
-  // Post.
-  p.rect(6, 4, 4, 15, wood);
-  p.rect(6, 4, 1, 15, lite);
-  p.rect(9, 4, 1, 15, dark);
-  p.rect(6, 3, 4, 1, lite);
+  const p = new Pix(16, 22);
+  const wood = '#a8703f';
+  const lite = '#c98e55';
+  const hi = '#e0aa6a';
+  const dark = '#7a4a2a';
+  const deep = '#5a341e';
+  const vertical = !(mask & 3) && !!(mask & 12);
+  const bottom = vertical ? 12 : 20;
+  // Post with a pointed cap, lit on the left, shaded on the right, a grain line down the middle.
+  p.rect(5, 4, 6, bottom - 3, wood);
+  p.rect(6, 3, 4, 1, wood);
+  p.rect(7, 2, 2, 1, lite);
+  p.rect(5, 4, 1, bottom - 3, lite);
+  p.rect(6, 3, 1, 1, lite);
+  p.rect(10, 4, 1, bottom - 3, dark);
+  for (let y = 6; y < bottom - 1; y++) if ((y * 7) % 5 !== 0) p.set(8, y, shade(wood, 1));
+  p.rect(5, bottom, 6, 1, deep);
   const rail = (y: number, x0: number, x1: number) => {
-    p.rect(x0, y, x1 - x0, 2, wood);
-    p.rect(x0, y, x1 - x0, 1, lite);
+    p.rect(x0, y, x1 - x0, 3, wood);
+    p.rect(x0, y, x1 - x0, 1, hi);
     p.rect(x0, y + 2, x1 - x0, 1, dark);
+    for (let x = x0 + 2; x < x1 - 1; x += 5) p.set(x, y + 1, shade(wood, 1));
   };
   if (mask & 1) {
-    rail(7, 0, 6);
-    rail(12, 0, 6);
+    rail(7, 0, 5);
+    rail(13, 0, 5);
   }
   if (mask & 2) {
-    rail(7, 10, 16);
-    rail(12, 10, 16);
+    rail(7, 11, 16);
+    rail(13, 11, 16);
   }
-  if (mask & 8) {
-    p.rect(7, 19, 2, 1, wood);
+  if (vertical && mask & 8) {
+    // Rails seen end-on: a plank from this post down to the next one.
+    p.rect(7, bottom + 1, 2, 22 - bottom - 1, wood);
+    p.rect(7, bottom + 1, 1, 22 - bottom - 1, lite);
   }
-  p.outline(undefined, 'noTop');
+  p.outline('#3e2418', 'noTop');
   return p.toCanvas();
 }
 
@@ -280,6 +296,71 @@ export function soilTile(mask: number, wet: boolean): HTMLCanvasElement {
       if (d) c = y === 15 ? lip : dark;
       p.set(x, y, c);
     }
+  return p.toCanvas();
+}
+
+/**
+ * The little hill of earth a plant grows out of. `back` goes under the plant (a rounded mound
+ * with a sunlit crest and a shadowed foot), `front` over its base (the near lip of the mound
+ * covering the stem), so the plant reads as rooted in the soil rather than standing on it.
+ */
+export function cropMound(size: 0 | 1 | 2, wet: boolean): { back: HTMLCanvasElement; front: HTMLCanvasElement } {
+  const w = [7, 10, 13][size];
+  const h = [3, 4, 4][size];
+  const base = wet ? '#5e3e2c' : '#946442';
+  const crest = wet ? '#7a5440' : '#b8845a';
+  const foot = wet ? '#3e2618' : '#6a4630';
+  const back = new Pix(w, h);
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const nx = (x + 0.5 - w / 2) / (w / 2);
+      const ny = (h - 0.5 - y) / h;
+      if (nx * nx + ny * ny * 1.1 > 1) continue;
+      const edge = nx * nx + (ny + 0.3) * (ny + 0.3) > 0.8;
+      back.set(x, y, y === h - 1 ? foot : edge && nx > 0 ? foot : ny > 0.55 ? crest : base);
+    }
+  const fw = Math.max(3, w - 4);
+  const front = new Pix(fw, 2);
+  for (let x = 0; x < fw; x++) {
+    front.set(x, 0, x === 0 || x === fw - 1 ? base : crest);
+    front.set(x, 1, x > fw / 2 ? foot : base);
+  }
+  return { back: back.toCanvas(), front: front.toCanvas() };
+}
+
+/** Palette for grass skirts by season: tip, blade, root. Winter gets a drift of snow instead. */
+const SKIRT = [
+  ['#b4e46e', '#7cc44a', '#4a8e34'],
+  ['#a4d862', '#6cb444', '#40862f'],
+  ['#dcc86a', '#b09848', '#7a6a34'],
+  ['#ffffff', '#e8eef6', '#c8d4e2'],
+];
+
+/**
+ * A fringe of grass (or a drift of snow in winter) laid over the foot of anything standing in a
+ * meadow — rocks, posts, trees, buildings — so it sits in the turf instead of on top of it.
+ */
+export function grassSkirt(w: number, seed: number, season: number): HTMLCanvasElement {
+  const p = new Pix(w, 5);
+  const [tip, blade, root] = SKIRT[season];
+  if (season === 3) {
+    for (let x = 0; x < w; x++) {
+      const edge = Math.min(x, w - 1 - x);
+      const hh = Math.min(edge + 1, 1 + Math.round(hash2(x >> 1, seed, 81) * 2));
+      for (let k = 0; k < hh; k++) p.set(x, 4 - k, k === hh - 1 ? tip : k === 0 ? root : blade);
+    }
+    return p.toCanvas();
+  }
+  for (let x = 0; x < w; x++) {
+    if (hash2(x, seed, 82) < 0.35) continue;
+    const edge = Math.min(x, w - 1 - x);
+    const hh = Math.min(edge + 1, 1 + Math.floor(hash2(x, seed, 83) * 4));
+    const lean = hash2(x, seed, 84) < 0.3 ? (hash2(x, seed, 85) < 0.5 ? -1 : 1) : 0;
+    for (let k = 0; k < hh; k++) {
+      const xx = k === hh - 1 && hh > 2 ? x + lean : x;
+      p.set(xx, 4 - k, k === hh - 1 ? tip : k === 0 ? root : blade);
+    }
+  }
   return p.toCanvas();
 }
 

@@ -26,7 +26,7 @@ import { P } from '../art/palette';
 import { WALK_FRAMES } from '../art/sprites/character';
 import type { Game } from '../engine/Game';
 import type { Scene } from '../engine/Scene';
-import { drawText } from '../engine/text';
+import { drawText, measure } from '../engine/text';
 import type { Connection } from '../net/Connection';
 import { TextField } from '../ui/kit';
 import { GameScene } from './GameScene';
@@ -173,7 +173,9 @@ export class CreatorScene implements Scene {
       }
     });
     ui.inset({ x: fx, y: y + 120, w: fw, h: 150 });
-    TABS[this.tab].rows.forEach((row, i) => this.drawRow(ctx, row, fx + 6, y + 126 + i * 29, fw - 12));
+    // The controls start after the longest label on this tab (German labels run long).
+    const lw = Math.max(58, ...TABS[this.tab].rows.map((r) => measure(r.label, 'small') + 6));
+    TABS[this.tab].rows.forEach((row, i) => this.drawRow(ctx, row, fx + 6, y + 126 + i * 29, fw - 12, lw));
 
     const ok = this.name.value.trim().length > 0;
     if (ui.button({ x: x + W - 140, y: y + H - 36, w: 126, h: 24 }, '섬에서 시작하기', { tone: 'brass', disabled: !ok || this.sent })) {
@@ -183,7 +185,7 @@ export class CreatorScene implements Scene {
     if (!ok) drawText(ctx, '이름을 적어 주세요', x + W - 148, y + H - 30, { font: 'small', color: P.coralDark, align: 'right' });
   }
 
-  private drawRow(ctx: CanvasRenderingContext2D, row: Row, x: number, y: number, w: number) {
+  private drawRow(ctx: CanvasRenderingContext2D, row: Row, x: number, y: number, w: number, lw: number) {
     const ui = this.game.ui;
     const max = APPEARANCE_OPTIONS[row.key];
     const v = this.look[row.key] ?? 0;
@@ -191,9 +193,9 @@ export class CreatorScene implements Scene {
     if (row.colors) {
       // Swatches: click to pick; the chosen one is framed in brass.
       const n = row.colors.length;
-      const size = Math.min(15, Math.floor((w - 60) / n) - 2);
+      const size = Math.min(15, Math.floor((w - lw - 2) / n) - 2);
       row.colors.forEach((c, i) => {
-        const r = { x: x + 58 + i * (size + 2), y: y, w: size, h: size };
+        const r = { x: x + lw + i * (size + 2), y: y, w: size, h: size };
         const hot = ui.hover(r);
         ctx.fillStyle = i === v ? P.brass : hot ? P.brassLight : P.ink;
         ctx.fillRect(r.x - 1, r.y - 1, size + 2, size + 2);
@@ -205,8 +207,8 @@ export class CreatorScene implements Scene {
       });
       return;
     }
-    if (ui.arrow(x + 58, y, -1)) this.set(row.key, (v + max - 1) % max);
-    drawText(ctx, row.names![v] ?? `${v + 1}`, x + 58 + (w - 58) / 2, y + 2, { font: 'body', align: 'center' });
+    if (ui.arrow(x + lw, y, -1)) this.set(row.key, (v + max - 1) % max);
+    drawText(ctx, row.names![v] ?? `${v + 1}`, x + lw + (w - lw) / 2, y + 2, { font: 'body', align: 'center', maxWidth: w - lw - 30 });
     drawText(ctx, `${v + 1}/${max}`, x + w - 18, y + 16, { font: 'small', color: P.inkSoft, align: 'right' });
     if (ui.arrow(x + w - 13, y, 1)) this.set(row.key, (v + 1) % max);
   }

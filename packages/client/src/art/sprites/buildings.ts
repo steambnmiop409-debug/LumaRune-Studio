@@ -99,6 +99,99 @@ class Painter {
     }
   }
 
+  /**
+   * A gable end turned toward the viewer. The ridge runs away from us, so on screen it is a
+   * line down the middle of the roof: the left slope catches the sun, the right one is in shade,
+   * and the courses of tiles run up and down. Below the rakes (with their barge boards) the
+   * triangular gable wall is filled in the building's own wall material, with an attic window.
+   * `wallY` is where the front wall starts; the roof overhangs the wall by 2 px each side.
+   */
+  gableRoof(x0: number, w: number, yTop: number, wallY: number, gableH: number, color: string, style: 'tile' | 'slate' | 'shake' | 'thatch', wallColor: string, wallStyle: WallStyle, attic = true) {
+    const p = this.p;
+    const cx = x0 + w / 2;
+    const half = w / 2 + 2;
+    const hiC = light(color, 1);
+    const hi2 = light(color, 2);
+    const lo = shade(color, 1);
+    const lo2 = shade(color, 2);
+    const lo3 = shade(color, 3);
+    const trim = style === 'shake' || style === 'thatch' ? '#6e4a34' : '#efe6d6';
+    const trimLo = style === 'shake' || style === 'thatch' ? '#4a3022' : '#b8ac9c';
+    const rake = (x: number) => wallY - 1 - Math.round(gableH * Math.max(0, 1 - Math.abs(x + 0.5 - cx) / half));
+    for (let x = Math.floor(cx - half); x < Math.ceil(cx + half); x++) {
+      const ry = rake(x);
+      const left = x + 0.5 < cx;
+      const col = left ? x - Math.floor(cx - half) : Math.ceil(cx + half) - 1 - x;
+      for (let y = yTop; y < ry + 1; y++) {
+        let c: string;
+        if (y >= ry - 1) c = y === ry ? trimLo : trim;
+        else {
+          // Tile courses run up and down; each course is offset by half a tile from the next.
+          const k = Math.floor(col / 4);
+          const lx = col % 4;
+          const rowH = style === 'slate' ? 5 : 4;
+          const ly = (y - yTop + (k & 1) * 2) % rowH;
+          const r = Math.floor((y - yTop + (k & 1) * 2) / rowH);
+          // Sunlit slope: light tiles with a glint on each course; shaded slope: flat and calm.
+          const weathered = hash2(k, r, 57) < 0.12;
+          const base = left ? (weathered ? color : hiC) : weathered ? lo2 : lo;
+          if (style === 'thatch') c = hash2(x, y, 58) < 0.3 ? (left ? hi2 : color) : hash2(x, y, 59) < 0.2 ? lo2 : base;
+          else if (lx === 0) c = left ? color : lo2;
+          else if (ly === rowH - 1 && style !== 'shake') c = left ? color : lo2;
+          else if (lx === 1 && left && ly === 0) c = hi2;
+          else c = base;
+          if (style === 'shake' && hash2(k, r, 60) < 0.12) c = '#6f9a48';
+          // Ridge cap down the middle and the back edge of the roof.
+          if (Math.abs(x + 0.5 - cx) < 1.5) c = Math.abs(x + 0.5 - cx) < 0.6 ? hi2 : left ? hiC : lo;
+          if (y === yTop) c = lo3;
+          if (col === 0) c = lo3;
+        }
+        p.set(x, y, c);
+        // Winter: snow on the slopes, thinning toward the eaves.
+        if (y < ry - 2 && col > 1 && hash2(x >> 1, y >> 1, 61) > col / half - 0.35) this.s.set(x, y, left ? '#f8fbff' : '#e4ecf5');
+      }
+    }
+    // The gable wall under the rakes, shaded just under the barge boards.
+    const g0 = Math.floor(cx - w / 2);
+    for (let x = g0; x < g0 + w; x++)
+      for (let y = rake(x) + 1; y < wallY; y++) {
+        const d = y - rake(x);
+        let c = wallPixel(wallStyle, wallColor, x, y, g0, wallY - gableH - 2);
+        if (d <= 2) c = shade(wallColor, d === 1 ? 3 : 2);
+        p.set(x, y, c);
+      }
+    if (attic && gableH >= 14) {
+      const ay = wallY - Math.round(gableH * 0.55);
+      const ax = Math.round(cx) - 3;
+      p.rect(ax, ay, 6, 7, '#5a3e2c');
+      p.rect(ax + 1, ay + 1, 4, 5, '#a8d8ea');
+      p.rect(ax + 3, ay + 1, 1, 5, '#5a3e2c');
+      p.set(ax + 1, ay + 1, '#f4fbff');
+      p.set(ax, ay, shade(wallColor, 1));
+      p.set(ax + 5, ay, shade(wallColor, 1));
+      this.n.rect(ax + 1, ay + 1, 4, 5, '#ffe0a0');
+      this.lights.push({ x: ax + 3, y: ay + 3, r: 12, color: '#ffc873' });
+    }
+  }
+
+  /** A plank porch deck in front of a set-back wall, with a step down in front of the door. */
+  porch(x0: number, y0: number, w: number, h: number, stepX?: number) {
+    const p = this.p;
+    for (let y = y0; y < y0 + h; y++)
+      for (let x = x0; x < x0 + w; x++) {
+        const ly = (y - y0) % 3;
+        let c = ly === 2 ? '#8a5e3c' : ly === 0 ? '#d6a46c' : '#c08c58';
+        if ((x + (Math.floor((y - y0) / 3) & 1) * 7) % 14 === 0 && ly !== 2) c = '#8a5e3c';
+        p.set(x, y, c);
+      }
+    // Shadow of the wall on the deck, and the deck's front edge.
+    p.rect(x0, y0, w, 1, '#6e4a34');
+    p.rect(x0, y0 + h - 1, w, 1, '#5a3a26');
+    if (stepX !== undefined) {
+      p.rect(stepX - 1, y0 + h - 1, 16, 1, '#d6a46c');
+    }
+  }
+
   /** A little gabled dormer window sitting on the roof. */
   dormer(x: number, y: number, roof: string) {
     const p = this.p;
@@ -118,7 +211,7 @@ class Painter {
     this.roofs.push({ x0: x - 1, y0: y, w: 14, h: 6, inset: 5 });
   }
 
-  wall(x0: number, y0: number, w: number, h: number, color: string, style: WallStyle) {
+  wall(x0: number, y0: number, w: number, h: number, color: string, style: WallStyle, eaveShadow = true) {
     const p = this.p;
     const lo = shade(color, 1);
     const lo2 = shade(color, 2);
@@ -152,7 +245,8 @@ class Painter {
         p.set(x, y, c);
       }
     // Deep shadow under the eave, fading out.
-    for (let x = x0; x < x0 + w; x++) {
+    if (eaveShadow)
+      for (let x = x0; x < x0 + w; x++) {
       p.set(x, y0, shade(color, 3));
       p.set(x, y0 + 1, lo2);
       p.set(x, y0 + 2, lo);
@@ -353,6 +447,30 @@ class Painter {
   }
 }
 
+/** One pixel of wall in a given material (used where a wall isn't a plain rectangle, like a gable). */
+function wallPixel(style: WallStyle, color: string, x: number, y: number, x0: number, y0: number): string {
+  if (style === 'log') {
+    const ly = (y - y0) % 6;
+    return ly === 5 ? '#4a3226' : ly === 0 ? light(color, 1) : ly >= 4 ? shade(color, 1) : color;
+  }
+  if (style === 'plank') {
+    // Vertical board-and-batten in a gable reads better than courses.
+    const lx = (x - x0) % 5;
+    return lx === 4 ? shade(color, 1) : lx === 0 ? light(color, 1) : color;
+  }
+  if (style === 'stone') {
+    const row = Math.floor((y - y0) / 5);
+    const lx = (x - x0 + (row & 1) * 4) % 8;
+    const ly = (y - y0) % 5;
+    return ly === 4 || lx === 0 ? shade(color, 2) : ly === 0 ? light(color, 1) : color;
+  }
+  if (style === 'timber') {
+    // Half-timbering: a king post and diagonal braces.
+    return (x - x0) % 16 === 0 || (x - x0) % 16 === 1 ? '#6e4a34' : hash2(x, y, 11) < 0.07 ? shade(color, 1) : color;
+  }
+  return hash2(x, y, 11) < 0.07 ? shade(color, 1) : color;
+}
+
 const sprout = (p: Pix, x: number, y: number) => {
   p.rect(x + 1, y + 6, 6, 2, '#8a5a3a');
   p.line(x + 4, y + 6, x + 4, y + 2, '#4f8a3a');
@@ -378,19 +496,39 @@ function base(b: Building, roofExtra: number) {
   return { w, h, pt: new Painter(w, h), wallTop: h - 34 };
 }
 
+/**
+ * The farmhouse, L-shaped: a living block with its long side to us and a porch in front of the
+ * door, and a bedroom wing on the right turned gable-first, stepping out toward the yard.
+ */
 function house(b: Building): BuildingSprite {
-  const { w, h, pt } = base(b, 36);
-  const wallH = 34;
-  const wallY = h - wallH;
-  pt.chimney(w - 26, 6, 18);
-  pt.roof(0, 10, w, wallY - 8, '#d9735a', 'tile', 6);
-  pt.wall(2, wallY, w - 4, wallH, '#f3e6cc', 'timber');
+  const { w, h, pt } = base(b, 38);
+  const wingW = 40;
+  const wingX = w - 2 - wingW;
+  const porchH = 8;
+  const mainBottom = h - porchH;
+  const mainWallH = 30;
+  const mainWallY = mainBottom - mainWallH;
+  // Living block (set back behind the porch).
+  pt.chimney(20, 6, 18);
+  pt.roof(0, 10, wingX + 10, mainWallY - 8, '#d9735a', 'tile', 6);
+  pt.wall(2, mainWallY, wingX + 4, mainWallH, '#f3e6cc', 'timber');
   const doorX = 2 + TILE * (b.door!.x - b.x) + 2;
-  pt.door(doorX, h - 22, 12, 20, '#9a5a3a');
-  pt.window(14, wallY + 9, 12, 10, '#f07aa0', '#5a8a6a');
-  pt.window(w - 30, wallY + 9, 12, 10, '#f5d040', '#5a8a6a');
-  pt.ivy(w - 8, h - 5, 26, 7);
-  pt.p.rect(w - 44, h - 8, 3, 5, '#8a5a3a');
+  pt.door(doorX, mainBottom - 22, 12, 20, '#9a5a3a');
+  pt.window(12, mainWallY + 9, 10, 10, '#f07aa0', '#5a8a6a');
+  pt.porch(0, mainBottom, wingX + 2, porchH, doorX);
+  // Porch posts carrying the eave.
+  for (const px of [1, wingX - 2]) {
+    pt.p.rect(px, mainWallY - 2, 3, mainWallH + porchH - 1, '#8a5a3a');
+    pt.p.rect(px, mainWallY - 2, 1, mainWallH + porchH - 1, '#b07a4e');
+  }
+  // Bedroom wing, gable to the yard.
+  const wingWallH = 30;
+  const wingWallY = h - wingWallH;
+  pt.gableRoof(wingX, wingW, 16, wingWallY, 20, '#d9735a', 'tile', '#f3e6cc', 'timber');
+  pt.wall(wingX, wingWallY, wingW, wingWallH, '#f3e6cc', 'timber', false);
+  pt.window(wingX + 13, wingWallY + 8, 14, 11, '#f5d040', '#5a8a6a');
+  pt.ivy(w - 5, h - 5, 30, 7);
+  pt.p.rect(wingX - 6, h - 8, 3, 5, '#8a5a3a');
   const d = pt.done();
   return { ...d, ox: -2, oy: 0 };
 }
@@ -400,9 +538,10 @@ function seedShop(b: Building): BuildingSprite {
   const wallH = 36;
   const wallY = h - wallH;
   pt.roof(0, 8, w, wallY - 6, '#5aa58a', 'tile', 5, true);
-  pt.dormer(12, 14, '#5aa58a');
   pt.wall(2, wallY, w - 4, wallH, '#e8c898', 'plank');
   const doorX = 2 + TILE * (b.door!.x - b.x) + 2;
+  // A cross gable over the entrance breaks up the long roof.
+  pt.gableRoof(doorX - 14, 40, 12, wallY, 16, '#5aa58a', 'tile', '#e8c898', 'plank');
   pt.awning(4, wallY + 4, w - 8, '#6fb88a', '#f7efd8');
   pt.window(10, wallY + 14, 16, 12, '#f07aa0');
   pt.door(doorX, h - 22, 12, 20, '#5a8a6a', true);
@@ -416,19 +555,26 @@ function toolShop(b: Building): BuildingSprite {
   const { w, h, pt } = base(b, 36);
   const wallH = 44;
   const wallY = h - wallH;
-  pt.chimney(18, 4, 22);
-  pt.roof(0, 12, w, wallY - 10, '#5a6a8a', 'slate', 6);
+  pt.roof(28, 12, w - 28, wallY - 10, '#5a6a8a', 'slate', 6);
   pt.dormer(w - 44, 18, '#5a6a8a');
-  pt.wall(2, wallY, w - 4, wallH, '#b8aa98', 'stone');
-  pt.wall(2, wallY, w - 4, 16, '#8a6a4a', 'plank');
-  pt.awning(6, wallY + 14, w - 12, '#e8836b', '#f7efd8');
+  pt.wall(30, wallY, w - 32, wallH, '#b8aa98', 'stone');
+  pt.wall(30, wallY, w - 32, 16, '#8a6a4a', 'plank');
+  pt.awning(34, wallY + 14, w - 40, '#e8836b', '#f7efd8');
+  // The forge: a stone wing with its gable to the square and a tall chimney.
+  pt.chimney(10, 0, 24);
+  pt.gableRoof(2, 36, 18, wallY + 4, 20, '#5a6a8a', 'slate', '#a09488', 'stone', false);
+  pt.wall(2, wallY + 4, 36, wallH - 4, '#a09488', 'stone', false);
+  pt.p.rect(10, wallY + 14, 20, 16, '#3a2a28');
+  pt.p.rect(11, wallY + 15, 18, 14, '#5a3a2a');
+  pt.n.rect(11, wallY + 22, 18, 7, '#ff9a4a');
+  pt.p.rect(11, wallY + 26, 18, 3, '#8a4a2a');
   const doorX = 2 + TILE * (b.door!.x - b.x) + 2;
   pt.door(doorX, h - 22, 12, 20, '#6e4a34', true);
-  pt.window(12, wallY + 24, 14, 10);
   pt.window(w - 28, wallY + 24, 14, 10);
-  // Forge glow in the chimney top.
-  pt.n.rect(19, 5, 4, 2, '#ff9a4a');
-  pt.lights.push({ x: 21, y: 4, r: 18, color: '#ff9a4a' });
+  // Forge glow in the chimney top and the open hearth.
+  pt.n.rect(11, 1, 4, 2, '#ff9a4a');
+  pt.lights.push({ x: 13, y: 0, r: 18, color: '#ff9a4a' });
+  pt.lights.push({ x: 20, y: wallY + 24, r: 30, color: '#ff9a4a' });
   pt.sign(w - 22, 18, hammer);
   const d = pt.done();
   return { ...d, ox: -2, oy: 0 };
@@ -437,20 +583,58 @@ function toolShop(b: Building): BuildingSprite {
 const COTTAGE_ROOFS = ['#c8604a', '#4f7ab0', '#8a6ab0', '#d89a4a', '#5a9a7a'];
 const COTTAGE_WALLS = ['#f3e6cc', '#e8d8c0', '#f0e0d0', '#e0d0b0'];
 
+/**
+ * Village cottages come in three shapes so the lanes don't look stamped out: long side to the
+ * street, gable end to the street, or an L with a gabled wing on one side.
+ */
 function cottage(b: Building): BuildingSprite {
-  const { w, h, pt } = base(b, 32);
-  const wallH = 32;
+  const { w, h, pt } = base(b, 36);
+  const wallH = 30;
   const wallY = h - wallH;
   const roofC = COTTAGE_ROOFS[b.v % COTTAGE_ROOFS.length];
-  if (b.v % 2) pt.chimney(12, 6, 16);
-  pt.roof(0, 10, w, wallY - 8, roofC, b.v % 3 === 0 ? 'thatch' : 'tile', 5, b.v % 2 === 0);
-  pt.wall(2, wallY, w - 4, wallH, COTTAGE_WALLS[b.v % COTTAGE_WALLS.length], b.v % 2 ? 'plaster' : 'timber');
+  const wallC = COTTAGE_WALLS[b.v % COTTAGE_WALLS.length];
+  const style: WallStyle = b.v % 2 ? 'plaster' : 'timber';
+  const roofStyle = b.v % 5 === 0 ? 'thatch' : 'tile';
   const doorX = 2 + TILE * (b.door!.x - b.x) + 2;
-  pt.door(doorX, h - 22, 12, 20, ['#9a5a3a', '#4f6a8a', '#7a8a4a'][b.v % 3]);
   const shutter = ['#5a8a6a', '#4f6a9a', '#a85a4a', '#7a6a9a'][b.v % 4];
-  pt.window(9, wallY + 9, 10, 10, '#e8a0b8', b.v % 3 !== 1 ? shutter : undefined);
-  pt.window(w - 21, wallY + 9, 10, 10, '#f5d040', b.v % 3 !== 1 ? shutter : undefined);
-  if (b.v % 2 === 1) pt.ivy(4, h - 5, 22, b.v);
+  const doorC = ['#9a5a3a', '#4f6a8a', '#7a8a4a'][b.v % 3];
+  const shape = b.v % 3;
+  if (shape === 1) {
+    // Gable end to the street, door in the gable wall.
+    pt.gableRoof(2, w - 4, 4, wallY, 24, roofC, roofStyle, wallC, style);
+    if (b.v % 2) pt.chimney(w - 20, 2, 12);
+    pt.wall(2, wallY, w - 4, wallH, wallC, style, false);
+    pt.door(doorX, h - 22, 12, 20, doorC);
+    pt.window(8, wallY + 8, 10, 10, '#e8a0b8', shutter);
+    pt.window(w - 20, wallY + 8, 10, 10, '#f5d040', shutter);
+  } else if (shape === 2) {
+    // L: a gabled wing on the far side from the door.
+    const wingW = 34;
+    const wingLeft = doorX > w / 2;
+    const wingX = wingLeft ? 2 : w - 2 - wingW;
+    const porchH = 6;
+    const mainBottom = h - porchH;
+    const mainY = mainBottom - wallH;
+    const mx = wingLeft ? wingX + wingW - 8 : 0;
+    const mw = wingLeft ? w - mx : wingX + 10;
+    if (b.v % 2) pt.chimney(wingLeft ? w - 18 : 10, 6, 14);
+    pt.roof(mx, 10, mw, mainY - 8, roofC, roofStyle, 5, b.v % 2 === 0);
+    pt.wall(Math.max(2, mx + 2), mainY, Math.min(w - 4, mw - 4), wallH, wallC, style);
+    pt.door(doorX, mainBottom - 22, 12, 20, doorC);
+    pt.porch(Math.max(0, mx), mainBottom, Math.min(w, mw), porchH, doorX);
+    pt.gableRoof(wingX, wingW, 14, wallY, 18, roofC, roofStyle, wallC, style, false);
+    pt.wall(wingX, wallY, wingW, wallH, wallC, style, false);
+    pt.window(wingX + 11, wallY + 8, 12, 10, '#e8a0b8', undefined);
+  } else {
+    // Long side to the street.
+    if (b.v % 2) pt.chimney(12, 6, 16);
+    pt.roof(0, 10, w, wallY - 8, roofC, roofStyle, 5, b.v % 2 === 0);
+    pt.wall(2, wallY, w - 4, wallH, wallC, style);
+    pt.door(doorX, h - 22, 12, 20, doorC);
+    pt.window(9, wallY + 9, 10, 10, '#e8a0b8', shutter);
+    pt.window(w - 21, wallY + 9, 10, 10, '#f5d040', shutter);
+    if (b.v % 2 === 1) pt.ivy(4, h - 5, 22, b.v);
+  }
   const d = pt.done();
   return { ...d, ox: -2, oy: 0 };
 }
@@ -469,8 +653,9 @@ function cabin(b: Building): BuildingSprite {
       p.set(x, y, edge ? '#5e5650' : hash2(Math.floor((x + (row & 1) * 2) / 4), row, 5) < 0.5 ? '#a09890' : '#8a8078');
     }
   pt.smoke.push({ x: w - 10, y: 3 });
-  pt.roof(0, 10, w, wallY - 8, '#8a6040', 'shake', 4, true);
-  pt.wall(3, wallY, w - 6, wallH, '#a8784a', 'log');
+  // Gable end forward, like a trapper's cabin.
+  pt.gableRoof(3, w - 6, 8, wallY, 22, '#8a6040', 'shake', '#a8784a', 'log');
+  pt.wall(3, wallY, w - 6, wallH, '#a8784a', 'log', false);
   const doorX = 3 + TILE * (b.door!.x - b.x) + 1;
   pt.door(doorX, h - 22, 12, 20, '#6e4a34');
   pt.window(9, wallY + 9, 10, 9, undefined, '#5a7a4a');
@@ -486,8 +671,8 @@ function harborOffice(b: Building): BuildingSprite {
   const { w, h, pt } = base(b, 30);
   const wallH = 32;
   const wallY = h - wallH;
-  pt.roof(0, 8, w, wallY - 6, '#3f6a9a', 'slate', 4);
-  pt.wall(2, wallY, w - 4, wallH, '#9ac0c8', 'plank');
+  pt.gableRoof(2, w - 4, 6, wallY, 22, '#3f6a9a', 'slate', '#9ac0c8', 'plank', false);
+  pt.wall(2, wallY, w - 4, wallH, '#9ac0c8', 'plank', false);
   const doorX = 2 + TILE * (b.door!.x - b.x) + 2;
   pt.door(doorX, h - 22, 12, 20, '#2f4a6a');
   pt.window(8, wallY + 9, 10, 10);
@@ -496,7 +681,7 @@ function harborOffice(b: Building): BuildingSprite {
   pt.p.ellipse(w - 14, wallY + 14, 2, 2, '#9ac0c8');
   pt.p.rect(w - 19, wallY + 13, 2, 3, '#e8503a');
   pt.p.rect(w - 11, wallY + 13, 2, 3, '#e8503a');
-  pt.sign(w - 24, 10, anchor);
+  pt.sign(Math.round(w / 2) - 8, wallY - 18, anchor);
   const d = pt.done();
   return { ...d, ox: -2, oy: 0 };
 }

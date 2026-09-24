@@ -30,19 +30,20 @@ const HEIGHT: Record<number, number> = {
 const C = (h: string) => pack(h);
 const SEA = ['#93dccf', '#72c8c8', '#56b0c4', '#4396bb', '#377ca3', '#2d648c', '#254f78'].map(C);
 const FRESH = ['#86d4c0', '#68bdb6', '#52a6ad', '#448ea2', '#3a7894'].map(C);
-const CLOVER = [C('#c8ec8a'), C('#9ad06a')];
+const CLOVER = [C('#b4e472'), C('#86c858')];
 
 /** Ground palettes by season (spring, summer, autumn, winter). */
 const tint = (pal: string[], to: string, k: number) => pal.map((c) => C(mix(c, to, k)));
-const GRASS_HEX = ['#bce37a', '#a2d466', '#88c257', '#70ac4c', '#5a9544'];
-const FOREST_HEX = ['#94c466', '#7cb158', '#669c4d', '#538845', '#42723d'];
-const MEADOW_HEX = ['#c8eb84', '#b0dd70', '#96cc5f', '#7eb853', '#67a049'];
+// Deep, saturated turf (light → dark) so paths, crops and buildings read clearly against it.
+const GRASS_HEX = ['#9ad65a', '#7cc44a', '#64b040', '#509a38', '#3d8231'];
+const FOREST_HEX = ['#80c04c', '#68aa42', '#55963a', '#448233', '#356b2d'];
+const MEADOW_HEX = ['#a8dc60', '#8ccc50', '#74b845', '#5ea23c', '#4a8a34'];
 const SNOW = ['#ffffff', '#f2f6fb', '#e2eaf3', '#cad6e4', '#b2c0d4'].map(C);
 const SNOW_SHADE = ['#f2f6fb', '#e2eaf3', '#d0dbe8', '#bac8da', '#a2b2c8'].map(C);
 const SEASON_PALS: Array<{ g: number[]; f: number[]; m: number[] }> = [
-  { g: tint(GRASS_HEX, '#d4f290', 0.18), f: tint(FOREST_HEX, '#b0dc78', 0.15), m: tint(MEADOW_HEX, '#dcf49a', 0.18) },
+  { g: tint(GRASS_HEX, '#b8ec70', 0.14), f: tint(FOREST_HEX, '#a0dc68', 0.12), m: tint(MEADOW_HEX, '#c4f07c', 0.14) },
   { g: GRASS_HEX.map(C), f: FOREST_HEX.map(C), m: MEADOW_HEX.map(C) },
-  { g: tint(GRASS_HEX, '#c8b050', 0.38), f: tint(FOREST_HEX, '#a88c44', 0.4), m: tint(MEADOW_HEX, '#d4b858', 0.4) },
+  { g: tint(GRASS_HEX, '#c89a3c', 0.42), f: tint(FOREST_HEX, '#a8803a', 0.44), m: tint(MEADOW_HEX, '#d0a444', 0.42) },
   { g: SNOW, f: SNOW_SHADE, m: SNOW },
 ];
 const LEAF_LITTER = ['#e0923a', '#d0703a', '#e8b04a', '#c85a3a', '#b8783a'].map(C);
@@ -53,11 +54,11 @@ const FROZEN_EARTH = [C('#b8aca0'), C('#a0948a')];
 const SLUSH = ['#f0f4f8', '#dde3ea', '#c8c8c8', '#b0a496'].map(C);
 const WINTER_SAND = ['#f6f0e0', '#eee4cc', '#e2d6bc', '#d4c6a8'].map(C);
 const LEDGE_SNOW = C('#f4f8fc');
-const DIRT = ['#d2ac7c', '#bd956a', '#a67f5a', '#8e6a4c'].map(C);
-const PATH_EDGE = C('#a8845c');
-const SAND = ['#f4e4b6', '#ebd6a2', '#dfc68f', '#d0b37c'].map(C);
+const DIRT = ['#dcaa6a', '#c99356', '#b07c46', '#936238'].map(C);
+const PATH_EDGE = C('#94643a');
+const SAND = ['#f6e2a8', '#eed294', '#e2c07e', '#d2ab6a'].map(C);
 const WET_SAND = ['#d5ba8a', '#c9aa79'].map(C);
-const PATH = ['#e6cb98', '#d8b683', '#c6a06f', '#b08a5d'].map(C);
+const PATH = ['#e8bd78', '#d9a863', '#c89252', '#b07a42'].map(C);
 const COBBLE = ['#d6cdc0', '#cbc1b4', '#bfb5a9', '#b1a79c'].map(C);
 const MORTAR = C('#958980');
 const ROCK = ['#b1aaa1', '#9d968e', '#8a837d', '#77716c'].map(C);
@@ -68,7 +69,6 @@ const PLANK = ['#c39461', '#b38555', '#a3774b'].map(C);
 const PLANK_SEAM = C('#6e4b32');
 const PLANK_DARK = C('#5a3c28');
 const BANK = [C('#9a7652'), C('#7d5d40'), C('#654a34')];
-const FLOWER_SPECKS = ['#f9d8e3', '#fff4c8', '#ecc0f4', '#ffffff', '#f8bea6', '#c8dcff'].map(C);
 const FOAM = C('#f4fbf7');
 const FRESH_EDGE = rgba32(190, 232, 222, 230);
 const FOAM2 = rgba32(224, 244, 238, 200);
@@ -85,6 +85,35 @@ const FALL_FRAMES = 4;
 const FAN = ['#eadfcc', '#dfd2bc', '#d3c5ad', '#c4b59c'].map(C);
 const FAN_MORTAR = C('#a39485');
 const FAN_EDGE = C('#8a7c70');
+
+/**
+ * Where the land swells into low hills: open grass or meadow away from the farm, village,
+ * roads and water, a few screens apart. Deterministic from the map.
+ */
+function placeKnolls(map: WorldMap): Array<{ x: number; y: number; r: number }> {
+  const out: Array<{ x: number; y: number; r: number }> = [];
+  const G = 18;
+  const t = (x: number, y: number) => map.terrain[y * map.w + x];
+  for (let gy = 0; gy < map.h / G; gy++)
+    for (let gx = 0; gx < map.w / G; gx++) {
+      const h = hash2(gx, gy, map.seed + 141);
+      if (h > 0.6) continue;
+      const cx = Math.floor(gx * G + 3 + hash2(gx, gy, map.seed + 142) * (G - 6));
+      const cy = Math.floor(gy * G + 3 + hash2(gx, gy, map.seed + 143) * (G - 6));
+      const rt = 3 + Math.floor(hash2(gx, gy, map.seed + 144) * 4);
+      let ok = cx > rt && cy > rt && cx < map.w - rt && cy < map.h - rt;
+      for (let y = cy - rt - 1; y <= cy + rt + 1 && ok; y++)
+        for (let x = cx - rt - 1; x <= cx + rt + 1 && ok; x++) {
+          const tt = t(x, y);
+          const z = map.zone[y * map.w + x];
+          if (tt !== Terrain.Grass && tt !== Terrain.Meadow && tt !== Terrain.Forest) ok = false;
+          if (z === Zone.Farm || z === Zone.Village) ok = false;
+          if (map.level[y * map.w + x] !== map.level[cy * map.w + cx]) ok = false;
+        }
+      if (ok) out.push({ x: (cx + 0.5) * TILE, y: (cy + 0.5) * TILE, r: rt * TILE });
+    }
+  return out;
+}
 
 function band(colors: number[], v: number, x: number, y: number): number {
   const f = Math.max(0, Math.min(colors.length - 1.001, v * (colors.length - 1)));
@@ -108,24 +137,44 @@ function pieces(strokes: Stroke[]): Piece[] {
 }
 
 /**
- * Clumps of 3-5 grass blades on a jittered grid; `density` 0..1 thins them out.
+ * Grass tufts on a jittered grid, like hand-placed tuft stamps: a taller middle blade and two
+ * blades leaning out, lit at the tips and dark at the root. `density` 0..1 thins them out.
  * Returns 0 none, 1 sunlit tip, 2 blade, 3 dark root.
  */
+const TUFTS = [
+  ['..1..', '1.2.1', '.222.', '.333.'],
+  ['.1...', '.2.1.', '1222.', '.333.'],
+  ['...1.', '.1.2.', '.2221', '.333.'],
+  ['.1.1.', '12.21', '.222.', '..3..'],
+];
 function blades(wx: number, wy: number, seed: number, density: number): number {
-  const CW = 7;
-  const CH = 6;
+  const CW = 9;
+  const CH = 8;
   const cx = Math.floor(wx / CW);
   const cy = Math.floor(wy / CH);
   if (hash2(cx, cy, seed) > density) return 0;
-  const ox = cx * CW + 2 + Math.floor(hash2(cx, cy, seed + 1) * 3);
-  const oy = cy * CH + 4 + Math.floor(hash2(cx, cy, seed + 2) * 2);
+  const ox = cx * CW + Math.floor(hash2(cx, cy, seed + 1) * (CW - 5));
+  const oy = cy * CH + Math.floor(hash2(cx, cy, seed + 2) * (CH - 4));
   const dx = wx - ox;
-  const dy = oy - wy;
-  if (dx < -2 || dx > 2 || dy < 0) return 0;
-  const h = 1 + Math.floor(hash2(cx * 5 + dx, cy, seed + 3) * 3.4) - Math.abs(dx) * 0.6;
-  if (dy > h || h < 1) return 0;
-  if (dy === 0) return 3;
-  return dy >= Math.floor(h) ? 1 : 2;
+  const dy = wy - oy;
+  if (dx < 0 || dx > 4 || dy < 0 || dy > 3) return 0;
+  const shape = TUFTS[Math.floor(hash2(cx, cy, seed + 3) * TUFTS.length)];
+  const ch = shape[dy][dx];
+  return ch === '.' ? 0 : Number(ch);
+}
+
+/** A tiny five-petal flower (3×3) on a sparse jittered grid: 0 none, 1 petal, 2 centre. */
+function flower(wx: number, wy: number, seed: number, density: number): number {
+  const G = 13;
+  const cx = Math.floor(wx / G);
+  const cy = Math.floor(wy / G);
+  if (hash2(cx, cy, seed) > density) return 0;
+  const fx = cx * G + 1 + Math.floor(hash2(cx, cy, seed + 1) * (G - 3));
+  const fy = cy * G + 1 + Math.floor(hash2(cx, cy, seed + 2) * (G - 3));
+  const dx = wx - fx;
+  const dy = wy - fy;
+  if (dx === 0 && dy === 0) return 2;
+  return Math.abs(dx) + Math.abs(dy) === 1 ? 1 : 0;
 }
 
 /** Organic cobblestones from a jittered Voronoi grid. Returns -1 for mortar, else tone 0..3. */
@@ -252,12 +301,36 @@ export class TerrainBuilder {
   /** Centre of the plaza fountain, in world pixels (the paving fans out around it). */
   private fountain: { x: number; y: number } | null;
 
+  /** Gentle grassy knolls (walkable): centre and radius in world pixels. */
+  private knolls: Array<{ x: number; y: number; r: number }> = [];
+
   constructor(private map: WorldMap) {
     this.riverPieces = pieces(map.rivers);
     this.roadPieces = pieces(map.roads);
     this.fallSet = new Set(map.falls);
     const f = map.objects.find((o) => o.kind === 'fountain');
     this.fountain = f ? { x: (f.x + 1) * TILE, y: (f.y + 1) * TILE } : null;
+    this.knolls = placeKnolls(map);
+  }
+
+  /**
+   * How a knoll tilts the light at a pixel: positive on slopes facing the sun (upper left),
+   * negative on the far side. 0 on flat ground.
+   */
+  private knollLight(wx: number, wy: number, list: Array<{ x: number; y: number; r: number }>): number {
+    let gx = 0;
+    let gy = 0;
+    for (const k of list) {
+      const dx = wx + 0.5 - k.x;
+      const dy = (wy + 0.5 - k.y) * 1.3;
+      const d = Math.hypot(dx, dy);
+      if (d >= k.r || d < 0.001) continue;
+      // Height cos²(πd/2r): the slope is steepest halfway down the side (normalised to 1 there).
+      const s = Math.sin((Math.PI * d) / k.r);
+      gx += (s * dx) / d;
+      gy += (s * dy) / d;
+    }
+    return (gx * 0.55 + gy * 0.85) * 1.4;
   }
 
   /** Fan-pattern setts around the fountain: concentric rings split into arcs, framed by a kerb ring. */
@@ -472,6 +545,7 @@ export class TerrainBuilder {
     const near = (list: Piece[]) => list.filter((p) => p.x1 >= x0 - 8 && p.x0 <= x0 + S + 8 && p.y1 >= y0 - 8 && p.y0 <= y0 + S + 8);
     const rivers = near(this.riverPieces);
     const roads = near(this.roadPieces);
+    const knolls = this.knolls.filter((k) => k.x + k.r >= x0 && k.x - k.r <= x0 + S && k.y + k.r >= y0 && k.y - k.r <= y0 + S);
     const roadDist = new Float32Array(S * S);
     for (let y = 0; y < S; y++)
       for (let x = 0; x < S; x++) {
@@ -584,37 +658,56 @@ export class TerrainBuilder {
             case Terrain.Meadow: {
               const pal = t === Terrain.Grass ? this.G : t === Terrain.Forest ? this.F : this.M;
               const winter = this.season === 3;
-              // Mottled turf: broad light and dark patches with dithered rims.
-              const patch = valueNoise(wx / 24, wy / 24, seed + 61) * 0.62 + valueNoise(wx / 8, wy / 8, seed + 62) * 0.38;
-              let tone = 1.3 + (0.5 - macro) * 1.4 + (0.5 - meso) * 0.5;
-              if (patch > 0.63) tone -= 0.9;
-              else if (patch < 0.37) tone += 0.9;
-              col = pal[Math.max(0, Math.min(4, Math.round(tone + (bayer(wx, wy) - 0.5) * 0.7)))];
-              // Blade clumps, thicker in the lush patches.
-              const bl = blades(wx, wy, seed + 60, winter ? (patch > 0.6 ? 0.22 : 0.06) : patch > 0.55 ? 0.62 : 0.34);
+              // Turf in broad patches of three greens with crisp, lumpy borders (no dithered checkerboard):
+              // the noise is sampled on a 2-px lattice so edges step like hand-drawn clusters.
+              const qx = wx >> 1;
+              const qy = wy >> 1;
+              const patch = fbm(wx / 30 + 0.37 * (wy / 30), wy / 26 - 0.29 * (wx / 30), seed + 61, 3) * 0.8 + valueNoise(wx / 5, wy / 5, seed + 62) * 0.2 + (hash2(qx, qy, seed + 63) - 0.5) * 0.05;
+              const broad = (0.5 - macro) * 1.2 + (0.5 - meso) * 0.4;
+              let tone = 2 + Math.round(broad);
+              // Knolls: the sunny side a shade lighter, the far side a shade (or two) darker, stepped
+              // on a 2-px lattice so the slopes read as painted bands, not a gradient.
+              if (knolls.length) {
+                const kl = this.knollLight(qx * 2, qy * 2, knolls) + (hash2(qx, qy, seed + 139) - 0.5) * 0.3;
+                if (kl > 0.95) tone -= 2;
+                else if (kl > 0.35) tone -= 1;
+                else if (kl < -0.95) tone += 2;
+                else if (kl < -0.35) tone += 1;
+              }
+              if (patch > 0.64) tone += 1;
+              else if (patch < 0.36) tone -= 1;
+              col = pal[Math.max(knolls.length ? 0 : 1, Math.min(4, tone))];
+              // Tufts, thicker in the lush patches; the odd dark fleck between them.
+              const bl = blades(wx, wy, seed + 60, winter ? (patch > 0.6 ? 0.22 : 0.06) : patch > 0.55 ? 0.5 : 0.22);
               if (winter) {
                 // Dry stalks poking through the snow.
                 if (bl === 1 || bl === 2) col = DRY_GRASS[bl - 1];
                 else if (bl === 3) col = pal[3];
               } else if (bl === 1) col = pal[0];
-              else if (bl === 2) col = pal[Math.max(0, Math.min(3, Math.round(tone) - 1))];
-              else if (bl === 3) col = pal[4];
+              else if (bl === 2) col = pal[Math.max(0, Math.min(2, tone - 2))];
+              else if (bl === 3) col = pal[Math.min(4, tone + 1)];
+              else if (hash2(wx, wy, seed + 64) < 0.012) col = pal[Math.min(4, tone + 1)];
               // Clover in the damper hollows.
-              else if (patch < 0.4 && hash2(wx >> 1, wy >> 1, seed + 64) < 0.05) col = CLOVER[(wx + wy) & 1];
-              // Autumn leaf litter (thicker under the woods), spring blossoms in the turf.
-              if (this.season === 2 && hash2(wx, wy, seed + 72) < (t === Terrain.Forest ? 0.07 : 0.025)) col = LEAF_LITTER[Math.floor(hash2(wx, wy, seed + 73) * LEAF_LITTER.length)];
-              if (this.season === 0 && t !== Terrain.Forest && hash2(wx, wy, seed + 74) < 0.009) col = SPRING_BLOOM[Math.floor(hash2(wx, wy, seed + 75) * SPRING_BLOOM.length)];
-              // Bare earth scuffs out in the open grass, and crumbs of dirt along the paths.
+              else if (patch < 0.4 && hash2(qx, qy, seed + 65) < 0.03) col = CLOVER[(wx + wy) & 1];
+              // Autumn leaf litter (thicker under the woods); spring and summer wildflowers.
+              if (this.season === 2 && hash2(wx, wy, seed + 72) < (t === Terrain.Forest ? 0.05 : 0.018)) col = LEAF_LITTER[Math.floor(hash2(wx, wy, seed + 73) * LEAF_LITTER.length)];
+              if (!winter && this.season !== 2 && t !== Terrain.Forest) {
+                const fl = flower(wx, wy, seed + 74, t === Terrain.Meadow ? 0.2 : this.season === 0 ? 0.05 : 0.02);
+                if (fl) {
+                  const cell = hash2(Math.floor(wx / 13), Math.floor(wy / 13), seed + 75);
+                  col = fl === 2 ? C('#f6d040') : SPRING_BLOOM[Math.floor(cell * SPRING_BLOOM.length)];
+                }
+              }
+              // Bare earth scuffs out in the open grass; where grass meets a path it darkens into a rim.
               const rd = roadDist[i];
-              const bare = t === Terrain.Grass && valueNoise(wx / 34, wy / 34, seed + 63) > 0.86 && valueNoise(wx / 6, wy / 6, seed + 65) > 0.52;
+              const bare = t === Terrain.Grass && valueNoise(qx / 17, qy / 17, seed + 63) > 0.86 && valueNoise(qx / 3, qy / 3, seed + 65) > 0.52;
               if (winter) {
                 if (bare && hash2(wx, wy, seed + 66) < 0.4) col = FROZEN_EARTH[(wx + wy) & 1];
                 else if (rd < 1.5 && hash2(wx, wy, seed + 67) < 0.35) col = pal[3];
-              } else if (bare) col = DIRT[Math.min(3, Math.floor(hash2(wx, wy, seed + 66) * 2.2) + (valueNoise(wx / 6, wy / 6, seed + 65) > 0.62 ? 0 : 1))];
-              else if (rd < 1.5 && hash2(wx, wy, seed + 67) < 0.5) col = PATH_EDGE;
-              else if (rd < 4 && hash2(wx, wy, seed + 68) < 0.16) col = DIRT[1 + Math.floor(hash2(wx, wy, seed + 69) * 2)];
+              } else if (bare) col = DIRT[Math.min(3, (valueNoise(qx / 3, qy / 3, seed + 65) > 0.62 ? 0 : 1) + (hash2(qx, qy, seed + 66) < 0.3 ? 1 : 0))];
+              else if (rd < 1) col = pal[4];
+              else if (rd < 2.2 && hash2(wx, wy, seed + 67) < 0.45) col = pal[3];
               if (t === Terrain.Forest && h > 0.992) col = C('#8a7a4e');
-              if (t === Terrain.Meadow && h > 0.965) col = FLOWER_SPECKS[Math.floor(hash2(wx, wy, seed + 9) * FLOWER_SPECKS.length)];
               break;
             }
             case Terrain.Sand: {
@@ -633,16 +726,18 @@ export class TerrainBuilder {
                 col = rdw > -2.5 ? SNOW[hash2(wx, wy, seed + 70) < 0.5 ? 2 : 3] : band(SLUSH, 0.2 + v * 0.7, wx, wy);
                 break;
               }
-              col = band(PATH, v * 0.8, wx, wy);
+              const qx = wx >> 1;
+              const qy = wy >> 1;
+              const pv = valueNoise(qx / 7, qy / 7, seed + 76) * 0.6 + v * 0.4;
+              col = PATH[pv > 0.62 ? 0 : pv > 0.38 ? 1 : 2];
               const rd = roadDist[i];
-              // Ragged, trodden edges with grass creeping in.
-              if (rd > -1.6) col = hash2(wx, wy, seed + 70) < 0.3 ? this.G[3] : PATH_EDGE;
-              else if (rd > -3 && hash2(wx, wy, seed + 71) < 0.35) col = PATH[3];
-              else if (h < 0.025) col = PATH[3];
-              else if (h > 0.985) {
-                // A pebble with a shadow beneath.
-                col = C('#f2e0bc');
-              } else if (hash2(wx, wy - 1, seed + 77) > 0.985) col = PATH_EDGE;
+              // Grass blades hang over the edge; under them the dirt darkens into a rim.
+              const over = hash2(wx, 0, seed + 70) * 1.6 + hash2(wx >> 1, 1, seed + 78) * 0.8;
+              if (rd > -over) col = hash2(wx, wy, seed + 79) < 0.25 ? this.G[1] : this.G[2];
+              else if (rd > -over - 1.2) col = PATH_EDGE;
+              else if (rd > -over - 2.6) col = PATH[3];
+              else if (h > 0.992) col = C('#f6dcb0');
+              else if (hash2(wx, wy - 1, seed + 77) > 0.992) col = PATH[3];
               break;
             }
             case Terrain.Cobble: {

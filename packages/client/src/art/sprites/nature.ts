@@ -122,6 +122,86 @@ export function rock(v: number): HTMLCanvasElement {
   return p.toCanvas();
 }
 
+/**
+ * A big boulder (2×2 tiles): two or three rounded masses of stone heaped together, split into
+ * facets lit from the upper left, with cracks, lichen spots and a cap of moss on the top.
+ */
+export function boulder(v: number): HTMLCanvasElement {
+  const W = 36;
+  const H = 30;
+  const p = new Pix(W, H);
+  const base = mix('#a49c92', '#b4ac9e', hash2(v, 1, 7));
+  const pal = [light(base, 2), light(base, 1), base, shade(base, 1), shade(base, 2), shade(base, 3)];
+  const masses = [
+    { x: 16 + (hash2(v, 2, 7) - 0.5) * 3, y: 17, rx: 13, ry: 11 },
+    { x: 25 + (hash2(v, 3, 7) - 0.5) * 3, y: 20, rx: 8.5, ry: 8 },
+    { x: 8 + (hash2(v, 4, 7) - 0.5) * 2, y: 22, rx: 6.5, ry: 6 },
+  ].slice(0, 2 + (v % 2));
+  const facet = (x: number, y: number) => {
+    let best = Infinity;
+    let id = 0;
+    for (let k = 0; k < 11; k++) {
+      const fx = 4 + hash2(v, 10 + k, 7) * (W - 8);
+      const fy = 6 + hash2(v, 30 + k, 7) * (H - 8);
+      const d = Math.hypot(x + 0.5 - fx, (y + 0.5 - fy) * 1.25);
+      if (d < best) {
+        best = d;
+        id = k;
+      }
+    }
+    return id;
+  };
+  const inside = (x: number, y: number) => y < H - 1 && masses.some((m) => ((x + 0.5 - m.x) / m.rx) ** 2 + ((y + 0.5 - m.y) / m.ry) ** 2 <= 1 + (hash2(x >> 1, y >> 1, v) - 0.5) * 0.12);
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++) {
+      if (!inside(x, y)) continue;
+      // Light from the front-most mass's surface normal, plus a per-facet tilt.
+      let best = masses[0];
+      let bs = -Infinity;
+      for (const m of masses) {
+        const nx = (x + 0.5 - m.x) / m.rx;
+        const ny = (y + 0.5 - m.y) / m.ry;
+        const d = nx * nx + ny * ny;
+        if (d > 1.1) continue;
+        const sc = m.y + Math.sqrt(Math.max(0, 1 - d)) * m.ry;
+        if (sc > bs) {
+          bs = sc;
+          best = m;
+        }
+      }
+      const nx = (x + 0.5 - best.x) / best.rx;
+      const ny = (y + 0.5 - best.y) / best.ry;
+      const id = facet(x, y);
+      const lit = -(nx * 0.6 + ny * 0.9) + (hash2(v, 60 + id, 7) - 0.5) * 0.7 - ((y / H) * 0.5 - 0.2);
+      let t = lit > 0.7 ? 0 : lit > 0.3 ? 1 : lit > -0.05 ? 2 : lit > -0.45 ? 3 : 4;
+      if (id !== facet(x + 1, y) || id !== facet(x, y + 1)) t = Math.min(5, t + 1);
+      if (!inside(x, y + 1)) t = 5;
+      p.set(x, y, pal[t]);
+      // Lichen.
+      if (t <= 2 && hash2(x, y, v + 70) < 0.025) p.set(x, y, hash2(x, y, v + 71) < 0.5 ? '#d8d0a0' : '#b8c098');
+    }
+  // Moss cap on the top of the biggest mass.
+  for (let x = 0; x < W; x++) {
+    let top = -1;
+    for (let y = 0; y < H; y++)
+      if (inside(x, y)) {
+        top = y;
+        break;
+      }
+    if (top < 0 || x < 6 || x > W - 7) continue;
+    const depth = Math.round(1 + hash2(x >> 1, v, 72) * 2.5 - Math.abs(x - 16) / 10);
+    for (let k = 0; k < depth; k++) p.set(x, top + k, k === 0 ? (x < 16 ? '#9ccf62' : '#7cb04c') : k === depth - 1 ? '#4e7e36' : '#6a9e46');
+  }
+  // A crack or two.
+  let cx = 12 + Math.floor(hash2(v, 80, 7) * 10);
+  for (let y = 12; y < 22; y++) {
+    if (inside(cx, y)) p.set(cx, y, pal[5]);
+    if (hash2(cx, y, v + 81) < 0.4) cx += hash2(cx, y, v + 82) < 0.5 ? -1 : 1;
+  }
+  p.outline(shade(base, 4));
+  return p.toCanvas();
+}
+
 export function stump(): HTMLCanvasElement {
   const p = new Pix(16, 12);
   p.rect(4, 5, 8, 6, '#8a5a3a');
