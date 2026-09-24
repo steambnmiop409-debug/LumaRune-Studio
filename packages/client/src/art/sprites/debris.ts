@@ -6,9 +6,10 @@ import { light, mix, shade } from '../palette';
 const r = (v: number, k: number) => hash2(v, k, 6262);
 
 /** A rank clump of weeds: broad dock leaves, grass blades, and sometimes a seed head or a dandelion. */
-export function weed(v: number, frame: number): HTMLCanvasElement {
+export function weed(v: number, frame: number, season = 1): HTMLCanvasElement {
   const p = new Pix(16, 16);
-  const base = mix('#5a8a3a', '#7a9a3a', r(v, 1));
+  // Green in spring and summer, yellowing in autumn, withered and frosted in winter.
+  const base = season === 3 ? mix('#8a7a5a', '#9a8a68', r(v, 1)) : season === 2 ? mix('#9a9a3a', '#b0943a', r(v, 1)) : mix('#5a8a3a', '#7a9a3a', r(v, 1));
   const dark = shade(base, 1);
   // Broad leaves fanning from the root.
   const leaves = 3 + Math.floor(r(v, 2) * 3);
@@ -32,7 +33,8 @@ export function weed(v: number, frame: number): HTMLCanvasElement {
     const h = 5 + Math.floor(r(v, 30 + i) * 6);
     for (let k = 0; k < h; k++) p.set(x + Math.round((k / h) * (r(v, 40 + i) - 0.5) * 3 + (frame ? 0.5 : 0)), 15 - k, k > h - 2 ? '#a8b860' : '#6a8a40');
   }
-  const bloom = r(v, 5);
+  const bloom = season === 3 ? 1 : r(v, 5);
+  if (season === 3) for (let i = 0; i < 4; i++) p.set(4 + Math.floor(r(v, 70 + i) * 8), 6 + Math.floor(r(v, 80 + i) * 6), '#f4f8fc');
   if (bloom < 0.3) {
     // Dandelion.
     p.set(10, 5, '#f8d840');

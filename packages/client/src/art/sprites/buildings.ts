@@ -13,6 +13,8 @@ export interface BuildingSprite {
   img: HTMLCanvasElement;
   /** Only the lit windows — blended in at night. */
   night: HTMLCanvasElement;
+  /** Snow on the roof, sills and chimney — laid over the sprite in winter. */
+  snow: HTMLCanvasElement;
   /** Sprite offset from the footprint's top-left pixel. */
   ox: number;
   oy: number;
@@ -25,11 +27,16 @@ type WallStyle = 'plaster' | 'plank' | 'stone' | 'timber' | 'log';
 class Painter {
   p: Pix;
   n: Pix;
+  /** Snow overlay (winter). */
+  s: Pix;
+  private roofs: Array<{ x0: number; y0: number; w: number; h: number; inset: number }> = [];
+  private sills: Array<{ x: number; y: number; w: number }> = [];
   lights: LightSpot[] = [];
   smoke: Array<{ x: number; y: number }> = [];
   constructor(w: number, h: number) {
     this.p = new Pix(w, h);
     this.n = new Pix(w, h);
+    this.s = new Pix(w, h);
   }
 
   roof(x0: number, y0: number, w: number, h: number, color: string, style: 'tile' | 'slate' | 'thatch' | 'shake' = 'tile', inset = 5, moss = false) {
@@ -39,8 +46,11 @@ class Painter {
     const lo = shade(color, 1);
     const lo2 = shade(color, 2);
     const lo3 = shade(color, 3);
+    this.roofs.push({ x0, y0, w, h, inset });
     for (let y = y0; y < y0 + h; y++) {
       const t = (y - y0) / (h - 1);
+      // Pitch: the upper courses catch the sky, the lower ones fall toward the eave shadow.
+      const pitch = t < 0.22 ? 1 : t > 0.72 ? -1 : 0;
       const ins = Math.round((1 - t) * inset);
       for (let x = x0 + ins; x < x0 + w - ins; x++) {
         const row = y - y0;
@@ -72,6 +82,8 @@ class Painter {
           if (lx === 0 && ly !== rowH - 1) c = lo;
           if (moss && ly !== rowH - 1 && hash2(tileId >> 1, r >> 1, 19) < 0.18 && hash2(x, y, 20) < 0.7) c = hash2(x, y, 21) < 0.5 ? '#7fa34e' : '#658a42';
         }
+        if (pitch > 0 && c === color) c = hi;
+        else if (pitch < 0 && (c === color || c === hi)) c = pitch < 0 && c === hi ? color : lo;
         // Side slopes darker/lighter for volume.
         if (x < x0 + ins + 2) c = hi;
         if (x >= x0 + w - ins - 2) c = lo2;
@@ -80,6 +92,30 @@ class Painter {
         p.set(x, y, c);
       }
     }
+    // Painted fascia board along the eave, with a drip shadow under it.
+    for (let x = x0 + 1; x < x0 + w - 1; x++) {
+      p.set(x, y0 + h - 2, style === 'shake' || style === 'thatch' ? '#8a6040' : '#efe6d6');
+      p.set(x, y0 + h - 1, style === 'shake' || style === 'thatch' ? '#5a3a26' : '#b8ac9c');
+    }
+  }
+
+  /** A little gabled dormer window sitting on the roof. */
+  dormer(x: number, y: number, roof: string) {
+    const p = this.p;
+    // Cheeks and window.
+    p.rect(x, y + 5, 12, 8, '#efe6d6');
+    p.rect(x + 11, y + 5, 1, 8, '#c8bcac');
+    p.rect(x + 3, y + 7, 6, 5, '#5a3e2c');
+    p.rect(x + 4, y + 8, 4, 3, '#a8d8ea');
+    p.set(x + 4, y + 8, '#f4fbff');
+    this.n.rect(x + 4, y + 8, 4, 3, '#ffe0a0');
+    this.lights.push({ x: x + 6, y: y + 9, r: 14, color: '#ffc873' });
+    // Its own little roof.
+    for (let yy = 0; yy < 6; yy++) {
+      const half = 2 + yy;
+      for (let xx = 6 - half; xx < 6 + half; xx++) p.set(x + xx, y + yy, yy === 5 ? shade(roof, 2) : xx < 6 ? light(roof, 1) : shade(roof, 1));
+    }
+    this.roofs.push({ x0: x - 1, y0: y, w: 14, h: 6, inset: 5 });
   }
 
   wall(x0: number, y0: number, w: number, h: number, color: string, style: WallStyle) {
@@ -188,6 +224,7 @@ class Painter {
     p.set(x + 3, y + 2, '#f4fbff');
     p.set(x + 2, y + 3, '#f4fbff');
     // Sill.
+    this.sills.push({ x: x - 1, y: y + h, w: w + 2 });
     p.rect(x - 1, y + h, w + 2, 1, '#e8d8b8');
     p.rect(x - 1, y + h + 1, w + 2, 1, '#9a8468');
     if (box) {
@@ -244,6 +281,7 @@ class Painter {
   }
 
   chimney(x: number, y: number, h: number) {
+    this.sills.push({ x: x - 1, y, w: 8 });
     this.p.rect(x, y, 6, h, '#9a6a5a');
     this.p.rect(x, y, 1, h, '#b8806a');
     this.p.rect(x + 5, y, 1, h, '#6e4a40');
@@ -278,9 +316,40 @@ class Painter {
     icon(p, x + 4, y + 2);
   }
 
-  done(): Pick<BuildingSprite, 'img' | 'night' | 'lights' | 'smoke'> {
+  /** Builds the winter overlay: a soft blanket on each roof, snow on sills, icicles at the eaves. */
+  private snowCover() {
+    const s = this.s;
+    const p = this.p;
+    for (const r of this.roofs)
+      for (let y = r.y0 - 1; y < r.y0 + r.h - 1; y++) {
+        const t = (y - r.y0) / Math.max(1, r.h - 1);
+        const ins = Math.round((1 - Math.max(0, t)) * r.inset);
+        for (let x = r.x0 + ins; x < r.x0 + r.w - ins; x++) {
+          if (!p.opaque(x, Math.max(0, y))) continue;
+          // Thinner toward the eave and the right slope, with a few bare tiles showing.
+          if (t > 0.75 && hash2(x, y, 41) < (t - 0.75) * 3) continue;
+          if (hash2(x >> 2, y >> 1, 42) < 0.06) continue;
+          const edge = x < r.x0 + ins + 1 || x >= r.x0 + r.w - ins - 1;
+          s.set(x, y, edge || y === r.y0 - 1 ? '#dde6f0' : (y - r.y0) % 3 === 2 ? '#e4ecf5' : x > r.x0 + r.w - ins - 5 ? '#e8eef6' : '#f8fbff');
+        }
+        if (y === r.y0 + r.h - 2)
+          for (let x = r.x0 + 2; x < r.x0 + r.w - 2; x += 3)
+            if (hash2(x, y, 43) < 0.55) {
+              const len = 1 + Math.floor(hash2(x, y, 44) * 3);
+              for (let k = 0; k < len; k++) s.set(x, y + 2 + k, k === len - 1 ? '#c8e4f4' : '#eaf6fc');
+            }
+      }
+    for (const sl of this.sills)
+      for (let x = sl.x; x < sl.x + sl.w; x++) {
+        s.set(x, sl.y - 1, '#f8fbff');
+        if (hash2(x, sl.y, 45) < 0.5) s.set(x, sl.y - 2, '#eef4fa');
+      }
+  }
+
+  done(): Pick<BuildingSprite, 'img' | 'night' | 'snow' | 'lights' | 'smoke'> {
     this.p.outline(undefined, 'noTop');
-    return { img: this.p.toCanvas(), night: this.n.toCanvas(), lights: this.lights, smoke: this.smoke };
+    this.snowCover();
+    return { img: this.p.toCanvas(), night: this.n.toCanvas(), snow: this.s.toCanvas(), lights: this.lights, smoke: this.smoke };
   }
 }
 
@@ -330,7 +399,8 @@ function seedShop(b: Building): BuildingSprite {
   const { w, h, pt } = base(b, 34);
   const wallH = 36;
   const wallY = h - wallH;
-  pt.roof(0, 8, w, wallY - 6, '#5aa58a', 'tile', 5);
+  pt.roof(0, 8, w, wallY - 6, '#5aa58a', 'tile', 5, true);
+  pt.dormer(12, 14, '#5aa58a');
   pt.wall(2, wallY, w - 4, wallH, '#e8c898', 'plank');
   const doorX = 2 + TILE * (b.door!.x - b.x) + 2;
   pt.awning(4, wallY + 4, w - 8, '#6fb88a', '#f7efd8');
@@ -348,6 +418,7 @@ function toolShop(b: Building): BuildingSprite {
   const wallY = h - wallH;
   pt.chimney(18, 4, 22);
   pt.roof(0, 12, w, wallY - 10, '#5a6a8a', 'slate', 6);
+  pt.dormer(w - 44, 18, '#5a6a8a');
   pt.wall(2, wallY, w - 4, wallH, '#b8aa98', 'stone');
   pt.wall(2, wallY, w - 4, 16, '#8a6a4a', 'plank');
   pt.awning(6, wallY + 14, w - 12, '#e8836b', '#f7efd8');

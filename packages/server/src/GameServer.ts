@@ -282,6 +282,10 @@ export class GameServer {
     else if (cmd === 'gold') state.gold += arg ?? 1000;
     else if (cmd === 'skip') for (let i = 0; i < (arg ?? 60); i++) this.stepMinute();
     else if (cmd === 'sleep') this.nextDay(false);
+    else if (cmd === 'day' && arg !== undefined) {
+      state.clock.day = Math.max(0, arg | 0);
+      this.dirtySocial = true;
+    }
     else if (cmd === 'tp' && arg !== undefined) {
       // arg encodes a tile: y * 1000 + x
       p.x = (arg % 1000) * TILE + TILE / 2;

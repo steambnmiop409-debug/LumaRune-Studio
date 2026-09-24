@@ -1,6 +1,6 @@
 import { Terrain, TILE, Zone, fbm, hash2, splitStroke, strokeBounds, strokeDistance, valueNoise, type Stroke, type WorldMap } from '@lumina/core';
 import { bayer } from '../art/Pix';
-import { pack, rgba32 } from '../art/palette';
+import { mix, pack, rgba32 } from '../art/palette';
 
 export const CHUNK_TILES = 16;
 export const CHUNK_PX = CHUNK_TILES * TILE;
@@ -30,10 +30,29 @@ const HEIGHT: Record<number, number> = {
 const C = (h: string) => pack(h);
 const SEA = ['#93dccf', '#72c8c8', '#56b0c4', '#4396bb', '#377ca3', '#2d648c', '#254f78'].map(C);
 const FRESH = ['#86d4c0', '#68bdb6', '#52a6ad', '#448ea2', '#3a7894'].map(C);
-const GRASS = ['#bce37a', '#a2d466', '#88c257', '#70ac4c', '#5a9544'].map(C);
-const FOREST = ['#94c466', '#7cb158', '#669c4d', '#538845', '#42723d'].map(C);
-const MEADOW = ['#c8eb84', '#b0dd70', '#96cc5f', '#7eb853', '#67a049'].map(C);
 const CLOVER = [C('#c8ec8a'), C('#9ad06a')];
+
+/** Ground palettes by season (spring, summer, autumn, winter). */
+const tint = (pal: string[], to: string, k: number) => pal.map((c) => C(mix(c, to, k)));
+const GRASS_HEX = ['#bce37a', '#a2d466', '#88c257', '#70ac4c', '#5a9544'];
+const FOREST_HEX = ['#94c466', '#7cb158', '#669c4d', '#538845', '#42723d'];
+const MEADOW_HEX = ['#c8eb84', '#b0dd70', '#96cc5f', '#7eb853', '#67a049'];
+const SNOW = ['#ffffff', '#f2f6fb', '#e2eaf3', '#cad6e4', '#b2c0d4'].map(C);
+const SNOW_SHADE = ['#f2f6fb', '#e2eaf3', '#d0dbe8', '#bac8da', '#a2b2c8'].map(C);
+const SEASON_PALS: Array<{ g: number[]; f: number[]; m: number[] }> = [
+  { g: tint(GRASS_HEX, '#d4f290', 0.18), f: tint(FOREST_HEX, '#b0dc78', 0.15), m: tint(MEADOW_HEX, '#dcf49a', 0.18) },
+  { g: GRASS_HEX.map(C), f: FOREST_HEX.map(C), m: MEADOW_HEX.map(C) },
+  { g: tint(GRASS_HEX, '#c8b050', 0.38), f: tint(FOREST_HEX, '#a88c44', 0.4), m: tint(MEADOW_HEX, '#d4b858', 0.4) },
+  { g: SNOW, f: SNOW_SHADE, m: SNOW },
+];
+const LEAF_LITTER = ['#e0923a', '#d0703a', '#e8b04a', '#c85a3a', '#b8783a'].map(C);
+const SPRING_BLOOM = ['#ffffff', '#f8c8d8', '#fff0a0', '#d8c8ff'].map(C);
+const ICE = ['#e4f4f8', '#cce8f0', '#b4dae6', '#98c6d8'].map(C);
+const DRY_GRASS = [C('#9aa070'), C('#7a8458')];
+const FROZEN_EARTH = [C('#b8aca0'), C('#a0948a')];
+const SLUSH = ['#f0f4f8', '#dde3ea', '#c8c8c8', '#b0a496'].map(C);
+const WINTER_SAND = ['#f6f0e0', '#eee4cc', '#e2d6bc', '#d4c6a8'].map(C);
+const LEDGE_SNOW = C('#f4f8fc');
 const DIRT = ['#d2ac7c', '#bd956a', '#a67f5a', '#8e6a4c'].map(C);
 const PATH_EDGE = C('#a8845c');
 const SAND = ['#f4e4b6', '#ebd6a2', '#dfc68f', '#d0b37c'].map(C);
@@ -155,6 +174,20 @@ export class TerrainRenderer {
   private roadPieces: Piece[];
 
   private fallSet: Set<number>;
+  /** Current season look (0 spring … 3 winter); changing it redraws the ground. */
+  season = 1;
+  private G = SEASON_PALS[1].g;
+  private F = SEASON_PALS[1].f;
+  private M = SEASON_PALS[1].m;
+
+  setSeason(season: number): void {
+    if (season === this.season) return;
+    this.season = season;
+    this.G = SEASON_PALS[season].g;
+    this.F = SEASON_PALS[season].f;
+    this.M = SEASON_PALS[season].m;
+    this.chunks.clear();
+  }
   /** Centre of the plaza fountain, in world pixels (the paving fans out around it). */
   private fountain: { x: number; y: number } | null;
 
@@ -213,7 +246,7 @@ export class TerrainRenderer {
     const lx = wx - tx * TILE;
     // Grass (or forest floor) curling over the top edge, with the odd hanging tuft.
     const above = this.groundOf(tx, topTile - 1);
-    const pal = above === Terrain.Forest ? FOREST : above === Terrain.Meadow ? MEADOW : GRASS;
+    const pal = above === Terrain.Forest ? this.F : above === Terrain.Meadow ? this.M : this.G;
     const lip = 2 + Math.floor(valueNoise(wx / 3, 7.3, s + 70) * 3);
     const hang = hash2(wx, 5, s + 75) < 0.2 ? 1 + Math.floor(hash2(wx, 6, s + 75) * 3) : 0;
     if (ly < lip) return ly === lip - 1 ? pal[3] : hash2(wx, wy, s + 76) < 0.3 ? pal[1] : pal[2];
@@ -253,6 +286,7 @@ export class TerrainRenderer {
     if (gap < 1.0) return ly < fh * 0.4 ? ROCKF[4] : ROCK_LINE;
     let tone = 0.3 + hash2(cell, 3, s + 88) * 1.1 + (ly / fh) ** 1.3 * 3;
     if (ry < -2.4) tone -= 1.3;
+    if (this.season === 3 && ry < -2.2 && hash2(wx, wy, s + 94) < 0.85) return LEDGE_SNOW;
     else if (ry < -1) tone -= 0.5;
     else if (ry > 2.6) tone += 0.9;
     if (rx < -3) tone -= 0.4;
@@ -454,6 +488,13 @@ export class TerrainRenderer {
           const d = dWater[i] / 2; // px to land
           if (d < 12) hasShore = true;
           const fresh = t === Terrain.River || t === Terrain.Pond;
+          if (t === Terrain.Pond && this.season === 3) {
+            // A frozen pond: pale ice, hairline cracks, a frosted rim.
+            const n = valueNoise(wx / 9, wy / 9, seed + 92);
+            col = d < 2 ? SNOW[1] : Math.abs(n - 0.5) < 0.02 ? ICE[3] : ICE[Math.min(2, Math.floor(valueNoise(wx / 20, wy / 20, seed + 93) * 3))];
+            out[py * CHUNK_PX + px] = col;
+            continue;
+          }
           if (fresh) {
             col = band(FRESH, Math.min(1, d / 10 + 0.1), wx, wy);
           } else {
@@ -480,7 +521,8 @@ export class TerrainRenderer {
             case Terrain.Grass:
             case Terrain.Forest:
             case Terrain.Meadow: {
-              const pal = t === Terrain.Grass ? GRASS : t === Terrain.Forest ? FOREST : MEADOW;
+              const pal = t === Terrain.Grass ? this.G : t === Terrain.Forest ? this.F : this.M;
+              const winter = this.season === 3;
               // Mottled turf: broad light and dark patches with dithered rims.
               const patch = valueNoise(wx / 24, wy / 24, seed + 61) * 0.62 + valueNoise(wx / 8, wy / 8, seed + 62) * 0.38;
               let tone = 1.3 + (0.5 - macro) * 1.4 + (0.5 - meso) * 0.5;
@@ -488,16 +530,26 @@ export class TerrainRenderer {
               else if (patch < 0.37) tone += 0.9;
               col = pal[Math.max(0, Math.min(4, Math.round(tone + (bayer(wx, wy) - 0.5) * 0.7)))];
               // Blade clumps, thicker in the lush patches.
-              const bl = blades(wx, wy, seed + 60, patch > 0.55 ? 0.62 : 0.34);
-              if (bl === 1) col = pal[0];
+              const bl = blades(wx, wy, seed + 60, winter ? (patch > 0.6 ? 0.22 : 0.06) : patch > 0.55 ? 0.62 : 0.34);
+              if (winter) {
+                // Dry stalks poking through the snow.
+                if (bl === 1 || bl === 2) col = DRY_GRASS[bl - 1];
+                else if (bl === 3) col = pal[3];
+              } else if (bl === 1) col = pal[0];
               else if (bl === 2) col = pal[Math.max(0, Math.min(3, Math.round(tone) - 1))];
               else if (bl === 3) col = pal[4];
               // Clover in the damper hollows.
               else if (patch < 0.4 && hash2(wx >> 1, wy >> 1, seed + 64) < 0.05) col = CLOVER[(wx + wy) & 1];
+              // Autumn leaf litter (thicker under the woods), spring blossoms in the turf.
+              if (this.season === 2 && hash2(wx, wy, seed + 72) < (t === Terrain.Forest ? 0.07 : 0.025)) col = LEAF_LITTER[Math.floor(hash2(wx, wy, seed + 73) * LEAF_LITTER.length)];
+              if (this.season === 0 && t !== Terrain.Forest && hash2(wx, wy, seed + 74) < 0.009) col = SPRING_BLOOM[Math.floor(hash2(wx, wy, seed + 75) * SPRING_BLOOM.length)];
               // Bare earth scuffs out in the open grass, and crumbs of dirt along the paths.
               const rd = roadDist[i];
               const bare = t === Terrain.Grass && valueNoise(wx / 34, wy / 34, seed + 63) > 0.86 && valueNoise(wx / 6, wy / 6, seed + 65) > 0.52;
-              if (bare) col = DIRT[Math.min(3, Math.floor(hash2(wx, wy, seed + 66) * 2.2) + (valueNoise(wx / 6, wy / 6, seed + 65) > 0.62 ? 0 : 1))];
+              if (winter) {
+                if (bare && hash2(wx, wy, seed + 66) < 0.4) col = FROZEN_EARTH[(wx + wy) & 1];
+                else if (rd < 1.5 && hash2(wx, wy, seed + 67) < 0.35) col = pal[3];
+              } else if (bare) col = DIRT[Math.min(3, Math.floor(hash2(wx, wy, seed + 66) * 2.2) + (valueNoise(wx / 6, wy / 6, seed + 65) > 0.62 ? 0 : 1))];
               else if (rd < 1.5 && hash2(wx, wy, seed + 67) < 0.5) col = PATH_EDGE;
               else if (rd < 4 && hash2(wx, wy, seed + 68) < 0.16) col = DIRT[1 + Math.floor(hash2(wx, wy, seed + 69) * 2)];
               if (t === Terrain.Forest && h > 0.992) col = C('#8a7a4e');
@@ -508,16 +560,22 @@ export class TerrainRenderer {
               const dl = dLand[i] / 2;
               if (dl < 3) col = WET_SAND[1];
               else if (dl < 6) col = band(WET_SAND, 0.5 + bayer(wx, wy) * 0.2, wx, wy);
-              else col = band(SAND, v * 0.9, wx, wy);
+              else col = band(this.season === 3 ? WINTER_SAND : SAND, v * 0.9, wx, wy);
               if (dl >= 6 && h < 0.03) col = SAND[3];
               if (dl >= 6 && h > 0.985) col = C('#fcf4dc');
               break;
             }
             case Terrain.Path: {
+              if (this.season === 3) {
+                // Trodden snow: slush in the middle, clean snow at the edges.
+                const rdw = roadDist[i];
+                col = rdw > -2.5 ? SNOW[hash2(wx, wy, seed + 70) < 0.5 ? 2 : 3] : band(SLUSH, 0.2 + v * 0.7, wx, wy);
+                break;
+              }
               col = band(PATH, v * 0.8, wx, wy);
               const rd = roadDist[i];
               // Ragged, trodden edges with grass creeping in.
-              if (rd > -1.6) col = hash2(wx, wy, seed + 70) < 0.3 ? GRASS[3] : PATH_EDGE;
+              if (rd > -1.6) col = hash2(wx, wy, seed + 70) < 0.3 ? this.G[3] : PATH_EDGE;
               else if (rd > -3 && hash2(wx, wy, seed + 71) < 0.35) col = PATH[3];
               else if (h < 0.025) col = PATH[3];
               else if (h > 0.985) {
@@ -534,6 +592,7 @@ export class TerrainRenderer {
               }
               const c = cobble(wx, wy, seed);
               col = c < 0 ? MORTAR : COBBLE[c];
+              if (this.season === 3 && valueNoise(wx / 10, wy / 10, seed + 95) > 0.55) col = c < 0 ? SNOW[3] : SNOW[valueNoise(wx / 10, wy / 10, seed + 95) > 0.65 ? 1 : 2];
               // Curb stones along the plaza edge.
               const edge = T(px - 1, py) !== Terrain.Cobble || T(px + 1, py) !== Terrain.Cobble || T(px, py - 1) !== Terrain.Cobble || T(px, py + 1) !== Terrain.Cobble;
               if (edge) col = MORTAR;
@@ -542,6 +601,7 @@ export class TerrainRenderer {
             case Terrain.Rock: {
               col = band(ROCK, v, wx, wy);
               if (h < 0.03) col = ROCK[3];
+              if (this.season === 3 && valueNoise(wx / 7, wy / 7, seed + 91) > 0.45) col = SNOW[valueNoise(wx / 7, wy / 7, seed + 91) > 0.6 ? 1 : 3];
               break;
             }
             case Terrain.Dock: {
@@ -566,7 +626,7 @@ export class TerrainRenderer {
               break;
             }
             default:
-              col = GRASS[1];
+              col = this.G[1];
           }
 
           // Plateau rims: a rocky lip where the high ground drops away to the west, east or north.
@@ -582,8 +642,12 @@ export class TerrainRenderer {
             // Side walls read as a narrow rock band; the far (north) edge is a thinner lip.
             let side = 99;
             let north = 99;
+            let facingWest = true;
             if (drop(-1, 0)) side = Math.min(side, lxp + jit);
-            if (drop(1, 0)) side = Math.min(side, 15 - lxp + jit);
+            if (drop(1, 0) && 15 - lxp + jit < side) {
+              side = 15 - lxp + jit;
+              facingWest = false;
+            }
             if (drop(0, -1)) north = lyp + jit;
             // Corner tiles: follow the diagonal neighbours too so the band wraps around.
             if (side > 5 && north > 5) {
@@ -591,11 +655,27 @@ export class TerrainRenderer {
               if (drop(1, -1) && !drop(1, 0) && !drop(0, -1)) side = Math.min(side, Math.max(15 - lxp, lyp) + jit);
             }
             const d = Math.min(side, north + 1);
+            const lipPal = t === Terrain.Forest ? this.F : t === Terrain.Meadow ? this.M : this.G;
             if (d <= 0) col = ROCK_LINE;
-            else if (d <= 6 && side <= north + 1) {
-              const tone = [4, 3, 2, 1, 1][d - 1] ?? 0;
-              col = d === 6 ? (t === Terrain.Forest ? FOREST[3] : t === Terrain.Meadow ? MEADOW[3] : GRASS[3]) : ROCKF[Math.min(5, tone + (hash2(wx, Math.floor(wy / 3), seed + 82) < 0.3 ? 1 : 0))];
-            } else if (d <= 3) col = d === 1 ? ROCKF[3] : d === 2 ? ROCKF[1] : t === Terrain.Forest ? FOREST[3] : t === Terrain.Meadow ? MEADOW[3] : GRASS[3];
+            else if (d <= 8 && side <= north + 1) {
+              // A sliver of the side wall: stacked stones running down the slope,
+              // sunlit on west-facing walls, in shade on east-facing ones.
+              if (d >= 7) col = d === 8 ? lipPal[2] : lipPal[3];
+              else {
+                const row = Math.floor((wy + Math.floor(hash2(ptx, 0, seed + 83) * 7)) / 7);
+                const off = (wy + Math.floor(hash2(ptx, 0, seed + 83) * 7)) % 7;
+                if (off === 0) col = ROCK_LINE;
+                else {
+                  const base = facingWest ? 1.2 : 2.6;
+                  let tone = base + (d <= 2 ? 1.3 : d >= 5 ? -0.5 : 0) + (hash2(row, ptx, seed + 84) - 0.5) * 1.2;
+                  if (off === 1) tone -= 0.9;
+                  else if (off === 6) tone += 0.8;
+                  if (this.season === 3 && off === 1 && d > 2) col = LEDGE_SNOW;
+                  else col = ROCKF[Math.max(0, Math.min(5, Math.round(tone)))];
+                  if (d === 6 && hash2(wx, wy, seed + 85) < 0.3) col = lipPal[3];
+                }
+              }
+            } else if (d <= 3) col = d === 1 ? ROCKF[3] : d === 2 ? ROCKF[1] : t === Terrain.Forest ? this.F[3] : t === Terrain.Meadow ? this.M[3] : this.G[3];
           }
 
           // Banks: land that meets water just below shows an earthy 2px edge.
@@ -605,7 +685,7 @@ export class TerrainRenderer {
               else col = WATER.has(below) ? BANK[1] : BANK[0];
             } else if (HEIGHT[below] < hh && hh >= 2 && HEIGHT[below] >= 1 && below !== Terrain.Dock && below !== Terrain.Bridge) {
               // Grass lip over lower ground.
-              const pal = t === Terrain.Forest ? FOREST : t === Terrain.Meadow ? MEADOW : t === Terrain.Rock ? ROCK : t === Terrain.Grass ? GRASS : null;
+              const pal = t === Terrain.Forest ? this.F : t === Terrain.Meadow ? this.M : t === Terrain.Rock ? ROCK : t === Terrain.Grass ? this.G : null;
               if (pal) col = pal[3];
             } else if (HEIGHT[above] > hh && HEIGHT[above] <= 4 && HEIGHT[above] >= 2) {
               // Soft shadow cast by the higher ground above.

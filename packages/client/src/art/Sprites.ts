@@ -272,8 +272,9 @@ class SpriteCache {
     });
   }
 
-  debris(kind: 'weed' | 'stone' | 'twig', v: number, frame = 0) {
-    return this.get(`debris:${kind}:${v}:${frame}`, () => (kind === 'weed' ? weed(v, frame) : kind === 'stone' ? fieldStone(v) : twig(v)));
+  debris(kind: 'weed' | 'stone' | 'twig', v: number, frame = 0, season = 1) {
+    const s = kind === 'weed' ? season : 1;
+    return this.get(`debris:${kind}:${v}:${frame}:${s}`, () => (kind === 'weed' ? weed(v, frame, s) : kind === 'stone' ? fieldStone(v) : twig(v)));
   }
   /** A placed machine; `state` animates it (furnace glow, crank, reaping arms, fullness). */
   machine(kind: string, v: number, state = 0) {

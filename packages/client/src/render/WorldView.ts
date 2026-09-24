@@ -158,6 +158,7 @@ export class WorldView {
       if (this.ship.t > 9) this.ship = null;
     }
     const season = this.season(input.day);
+    this.terrain.setSeason(season);
     // Chimney smoke.
     this.smokeT += dt;
     if (this.smokeT > 0.28) {
@@ -345,6 +346,7 @@ export class WorldView {
       switch (o.kind) {
         case 'flowers':
         case 'reeds': {
+          if (season === 3 && o.kind === 'flowers') break;
           const frame = Math.sin(this.time * 2 + o.x) * wind > 0.2 ? 1 : 0;
           const img = o.kind === 'flowers' ? Sprites.flowers(o.v, frame) : Sprites.reeds(o.v, frame);
           drawables.push({ y: by + 8, draw: () => ctx.drawImage(img, bx - cx, by + TILE - img.height - cy) });
@@ -354,6 +356,8 @@ export class WorldView {
         case 'pebbles':
         case 'mushroom':
         case 'lilypad': {
+          // Snow buries the tall grass; the frozen pond has no lily pads.
+          if (season === 3 && (o.kind === 'tallgrass' || o.kind === 'lilypad' || o.kind === 'mushroom')) break;
           const frame = (o.kind === 'tallgrass' || o.kind === 'lilypad') && Math.sin(this.time * 1.7 + o.x * 0.8 + o.y) * wind > 0.15 ? 1 : 0;
           const img = Sprites.detail(o.kind, o.v, frame);
           const low = o.kind === 'pebbles' || o.kind === 'lilypad';
@@ -446,6 +450,7 @@ export class WorldView {
         draw: () => {
           if (hidden) ctx.globalAlpha = 0.5;
           ctx.drawImage(spr.img, sx - cx, sy - cy);
+          if (season === 3) ctx.drawImage(spr.snow, sx - cx, sy - cy);
           ctx.globalAlpha = 1;
           if (b.kind === 'windmill') {
             const sails = Sprites.sails(Math.floor(this.time * 3 * (0.4 + input.weather.wind)) % 12);
@@ -612,7 +617,7 @@ export class WorldView {
       if (dx < cx - TILE || dy < cy - TILE || dx > cx + vw + TILE || dy > cy + vh + TILE) continue;
       const kind = input.debris[k];
       const frame = kind === 'weed' && Math.sin(this.time * 1.8 + k) * wind > 0.15 ? 1 : 0;
-      const img = Sprites.debris(kind, k, frame);
+      const img = Sprites.debris(kind, k, frame, season);
       if (kind !== 'weed') shadow(dx + 8, dy + 13, 6, 1.8);
       drawables.push({ y: dy + (kind === 'weed' ? 9 : 12), draw: () => ctx.drawImage(img, dx - cx, dy + TILE - img.height - cy) });
     }
